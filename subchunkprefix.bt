@@ -1,0 +1,97 @@
+//------------------------------------------------
+//--- 010 Editor v9.0.2 Binary Template
+//
+//      File: 
+//   Authors: 
+//   Version: 
+//   Purpose: 
+//  Category: 
+// File Mask: 
+//  ID Bytes: 
+//   History: 
+//------------------------------------------------
+
+struct nbt;
+
+struct nbt {
+    byte type;
+    if (type != 0) {
+        short nameLength;
+        byte name[nameLength];
+    }
+    switch (type) {
+        case 0:
+            break;
+        case 1:
+            byte payload;
+            break;
+        case 2:
+            short payload;
+            break;
+        case 3:
+            int payload;
+            break;
+        case 4:
+            long payload;
+            break;
+        case 5:
+            float payload;
+            break;
+        case 6:
+            double payload;
+            break;
+        case 8:
+            short length;
+            byte payload[length];
+            break;
+        case 10:
+            while (true) {
+                nbt payload;
+                if (payload.type == 0) {
+                    break;
+                }
+            }
+            break;
+        default:
+            return "Unknown nbt tag type: " + type;
+    }
+};
+
+char version;
+char storageCount;
+struct {
+    char typeAndFlag;
+    if (typeAndFlag & 1) {
+        return "block storage packed for network";
+    }
+    switch (typeAndFlag >> 1) {
+        case 1:
+            int blocks[4096 / 32];
+            break;
+        case 2:
+            int blocks[4096 / 16];
+            break;
+        case 3:
+            int blocks[(4096 / 10) + 1];
+            break;
+        case 4:
+            int blocks[4096 / 8];
+            break;
+        case 5:
+            int blocks[(4096 / 6) + 1];
+            break;
+        case 6:
+            int blocks[(4096 / 5) + 1];
+            break;
+        case 8:
+            int blocks[4096 / 4];
+            break;
+        case 16:
+            int blocks[4096 / 2];
+            break;
+        default:
+            return "unknown block storage format: " + (typeAndFlag >> 1);
+    }
+    int paletteCount;
+    nbt palette[paletteCount] <optimize=false>;
+} blockStorage[storageCount] <optimize=false>;

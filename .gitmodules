@@ -1,0 +1,12 @@
+[submodule "LevelDB/src"]
+	path = LevelDB/src
+	url = https://github.com/Mojang/leveldb-mcpe
+[submodule "zlib/zlib"]
+	path = zlib/zlib
+	url = https://github.com/madler/zlib
+[submodule "nbt/src"]
+	path = nbt/src
+	url = https://github.com/ljfa-ag/libnbtplusplus
+[submodule "png/src"]
+	path = png/src
+	url = https://github.com/glennrp/libpng

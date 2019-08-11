@@ -18,35 +18,101 @@
       <Platform>x64</Platform>
     </ProjectConfiguration>
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\include\leveldb\c.h" />
+    <ClInclude Include="src\include\leveldb\cache.h" />
+    <ClInclude Include="src\include\leveldb\comparator.h" />
+    <ClInclude Include="src\include\leveldb\compressor.h" />
+    <ClInclude Include="src\include\leveldb\db.h" />
+    <ClInclude Include="src\include\leveldb\decompress_allocator.h" />
+    <ClInclude Include="src\include\leveldb\dumpfile.h" />
+    <ClInclude Include="src\include\leveldb\env.h" />
+    <ClInclude Include="src\include\leveldb\filter_policy.h" />
+    <ClInclude Include="src\include\leveldb\iterator.h" />
+    <ClInclude Include="src\include\leveldb\options.h" />
+    <ClInclude Include="src\include\leveldb\slice.h" />
+    <ClInclude Include="src\include\leveldb\snappy_compressor.h" />
+    <ClInclude Include="src\include\leveldb\status.h" />
+    <ClInclude Include="src\include\leveldb\table.h" />
+    <ClInclude Include="src\include\leveldb\table_builder.h" />
+    <ClInclude Include="src\include\leveldb\write_batch.h" />
+    <ClInclude Include="src\include\leveldb\zlib_compressor.h" />
+    <ClInclude Include="src\include\leveldb\zopfli_compressor.h" />
+    <ClInclude Include="src\include\leveldb\zstd_compressor.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\db\builder.cc" />
+    <ClCompile Include="src\db\dbformat.cc" />
+    <ClCompile Include="src\db\db_impl.cc" />
+    <ClCompile Include="src\db\db_iter.cc" />
+    <ClCompile Include="src\db\filename.cc" />
+    <ClCompile Include="src\db\log_reader.cc" />
+    <ClCompile Include="src\db\log_writer.cc" />
+    <ClCompile Include="src\db\memtable.cc" />
+    <ClCompile Include="src\db\table_cache.cc" />
+    <ClCompile Include="src\db\version_edit.cc" />
+    <ClCompile Include="src\db\version_set.cc" />
+    <ClCompile Include="src\db\write_batch.cc" />
+    <ClCompile Include="src\db\zlib_compressor.cc" />
+    <ClCompile Include="src\port\port_posix_sse.cc" />
+    <ClCompile Include="src\port\port_win.cc" />
+    <ClCompile Include="src\table\block.cc" />
+    <ClCompile Include="src\table\block_builder.cc" />
+    <ClCompile Include="src\table\filter_block.cc" />
+    <ClCompile Include="src\table\format.cc" />
+    <ClCompile Include="src\table\iterator.cc" />
+    <ClCompile Include="src\table\merger.cc" />
+    <ClCompile Include="src\table\table.cc" />
+    <ClCompile Include="src\table\table_builder.cc" />
+    <ClCompile Include="src\table\two_level_iterator.cc" />
+    <ClCompile Include="src\util\arena.cc" />
+    <ClCompile Include="src\util\bloom.cc" />
+    <ClCompile Include="src\util\cache.cc" />
+    <ClCompile Include="src\util\coding.cc" />
+    <ClCompile Include="src\util\comparator.cc" />
+    <ClCompile Include="src\util\crc32c.cc" />
+    <ClCompile Include="src\util\env.cc" />
+    <ClCompile Include="src\util\env_win.cc" />
+    <ClCompile Include="src\util\filter_policy.cc" />
+    <ClCompile Include="src\util\hash.cc" />
+    <ClCompile Include="src\util\logging.cc" />
+    <ClCompile Include="src\util\options.cc" />
+    <ClCompile Include="src\util\status.cc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\zlib\zlib.vcxproj">
+      <Project>{001e6cb1-0ab4-4c96-b540-468191d879c7}</Project>
+    </ProjectReference>
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
-    <ProjectGuid>{FD4163B3-0042-4700-9347-6C67EA4CD244}</ProjectGuid>
+    <ProjectGuid>{C34F88E0-BC0B-47D7-8620-E77E0591745C}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>Mineorama</RootNamespace>
+    <RootNamespace>LevelDB</RootNamespace>
     <WindowsTargetPlatformVersion>10.0.17763.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -72,49 +138,53 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(SolutionDir)zlib;$(SolutionDir)zlib\zlib;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(SolutionDir)zlib;$(SolutionDir)zlib\zlib;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(SolutionDir)zlib;$(SolutionDir)zlib\zlib;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(SolutionDir)zlib;$(SolutionDir)zlib\zlib;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>DLLX=;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>DLLX=;LEVELDB_PLATFORM_WINDOWS;ssize_t=long long;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LevelDB.lib;nbt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <Lib>
+      <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>DLLX=;WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>DLLX=;LEVELDB_PLATFORM_WINDOWS;ssize_t=long long;WIN32;_DEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LevelDB.lib;nbt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <Lib>
+      <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
@@ -123,17 +193,19 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>DLLX=;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>DLLX=;LEVELDB_PLATFORM_WINDOWS;ssize_t=long long;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LevelDB.lib;nbt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <Lib>
+      <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -142,32 +214,20 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>DLLX=;WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>DLLX=;LEVELDB_PLATFORM_WINDOWS;ssize_t=long long;WIN32;NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>LevelDB.lib;nbt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <Lib>
+      <AdditionalDependencies>zlib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
   </ItemDefinitionGroup>
-  <ItemGroup>
-    <ClCompile Include="Mineorama.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\LevelDB\LevelDB.vcxproj">
-      <Project>{c34f88e0-bc0b-47d7-8620-e77e0591745c}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\nbt\nbt.vcxproj">
-      <Project>{182965e1-6fe1-462e-98a4-65c2d5f3503a}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\png\png.vcxproj">
-      <Project>{a1f38ecd-1ece-466d-afd8-a9b752aac609}</Project>
-    </ProjectReference>
-  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
