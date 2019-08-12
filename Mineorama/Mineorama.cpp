@@ -9,6 +9,7 @@
 #include <leveldb/decompress_allocator.h>
 
 #include <io/stream_reader.h>
+#include <tag_string.h>
 
 #define PNG_DEBUG 3
 #include <png.h>
@@ -93,10 +94,12 @@ namespace std {
 	};
 }
 
-constexpr int THREAD_COUNT = 1; // 0 = Auto
+// Configurable knobs.
+constexpr int THREAD_COUNT = 0; // 0 = Auto
+constexpr int CHUNKS_PER_SUPERCHUNK = 16; // 1 - 64 tested, should probably be a ^2
 
+// Actually a constant.
 constexpr int BLOCKS_PER_CHUNK = 16;
-constexpr int CHUNKS_PER_SUPERCHUNK = 16;
 
 typedef std::bitset<CHUNKS_PER_SUPERCHUNK * CHUNKS_PER_SUPERCHUNK> ChunkBitset;
 typedef std::unordered_map<SuperchunkKey, ChunkBitset> SuperchunkMap;
@@ -239,8 +242,155 @@ std::vector<std::unique_ptr<BlockStorage>> parse_subchunk(const std::string &dat
 	return storages;
 }
 
+namespace std {
+	template<> struct hash<png_color>
+	{
+		size_t operator()(const png_color &x) const
+		{
+			return std::hash<int32_t>{}((x.red << 16) | (x.green << 8) | x.blue);
+		}
+	};
+}
+
+inline bool operator==(const png_color &lhs, const png_color &rhs) {
+	return lhs.red == rhs.red && lhs.green == rhs.green && lhs.blue == rhs.blue;
+}
+
+class PngWriter
+{
+public:
+	PngWriter(const std::string &filename, uint32_t width, uint32_t height) :
+		filename(filename), width(width), height(height)
+	{
+		auto blackIdx = getOrAddPaletteIndex(0, 0, 0);
+
+		pixels = std::vector<size_t>(width * height, blackIdx);
+	}
+
+	void setPixel(uint32_t x, uint32_t y, uint8_t r, uint8_t g, uint8_t b)
+	{
+		if (x >= width || y >= height) {
+			throw std::runtime_error("pixel index out of bounds");
+		}
+
+		pixels[(y * width) + x] = getOrAddPaletteIndex(r, g, b);
+	}
+
+	void write() const
+	{
+		std::ofstream stream(filename, std::ios_base::out | std::ios_base::binary);
+		if (!stream) {
+			throw std::runtime_error("Failed to open " + filename + " for writing");
+		}
+
+		png_struct *context = png_create_write_struct_2(PNG_LIBPNG_VER_STRING, nullptr, [](png_struct *ctx, const char *msg) {
+			throw std::runtime_error(msg);
+		}, [](png_struct *ctx, const char *msg) {
+			std::cerr << "libpng warning: " << msg << std::endl;
+		}, nullptr, [](png_struct *ctx, size_t len) {
+			return malloc(len);
+		}, [](png_struct *ctx, void *ptr) {
+			return free(ptr);
+		});
+
+		png_info *info = png_create_info_struct(context);
+
+		png_set_write_fn(context, &stream, [](png_struct *ctx, png_byte *data, size_t length) {
+			std::ostream *file = reinterpret_cast<std::ostream *>(png_get_io_ptr(ctx));
+			if (!file->write(reinterpret_cast<char *>(data), length)) {
+				png_error(ctx, "write error");
+			}
+		}, [](png_struct *ctx) {
+			std::ostream *file = reinterpret_cast<std::ostream *>(png_get_io_ptr(ctx));
+			if (!file->flush()) {
+				png_error(ctx, "flush error");
+			}
+		});
+
+		// TODO: We might be able to encode using less than 8bpp if the palette is small enough.
+		int colorType = encodeUsingPalette() ? PNG_COLOR_TYPE_PALETTE : PNG_COLOR_TYPE_RGB;
+		png_set_IHDR(context, info, width, height, 8, colorType, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+		if (encodeUsingPalette()) {
+			png_set_PLTE(context, info, palette.data(), static_cast<int>(palette.size()));
+		}
+
+		png_write_info(context, info);
+
+		std::vector<png_byte> rowBytes;
+		std::vector<png_byte *> rowsPtrs;
+		if (encodeUsingPalette()) {
+			rowBytes.reserve(pixels.size());
+			for (uint32_t y = 0; y < height; ++y) {
+				for (uint32_t x = 0; x < width; ++x) {
+					auto idx = pixels[(y * width) + x];
+					rowBytes.push_back(static_cast<png_byte>(idx));
+				}
+				rowsPtrs.push_back(&rowBytes[y * width]);
+			}
+		} else {
+			rowBytes.reserve(pixels.size() * 3);
+			for (uint32_t y = 0; y < height; ++y) {
+				for (uint32_t x = 0; x < width; ++x) {
+					auto idx = pixels[(y * width) + x];
+					const auto &color = palette[idx];
+					rowBytes.push_back(color.red);
+					rowBytes.push_back(color.green);
+					rowBytes.push_back(color.blue);
+				}
+				rowsPtrs.push_back(&rowBytes[y * width * 3]);
+			}
+		}
+
+		png_write_image(context, rowsPtrs.data());
+
+		png_write_end(context, info);
+
+		png_destroy_write_struct(&context, &info);
+
+		stream.close();
+	}
+
+private:
+	bool encodeUsingPalette() const
+	{
+		// TODO: Need to evaluate this on the real output images,
+		// on simple gradients palette encoding is worse due to delta-compression.
+		return palette.size() <= std::numeric_limits<uint8_t>::max();
+	}
+
+	size_t getOrAddPaletteIndex(uint8_t r, uint8_t g, uint8_t b)
+	{
+		png_color color{ r, g, b };
+
+		const auto &it = paletteMap.find(color);
+		if (it != paletteMap.end()) {
+			return it->second;
+		}
+
+		auto idx = palette.size();
+		palette.push_back(color);
+		paletteMap[color] = idx;
+
+		return idx;
+	}
+
+private:
+	std::string filename;
+	uint32_t width;
+	uint32_t height;
+
+	std::vector<png_color> palette;
+	std::unordered_map<png_color, size_t> paletteMap;
+
+	std::vector<size_t> pixels;
+};
+
 void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, const SuperchunkKey &key, const ChunkBitset &bitmap)
 {
+	// TODO: Build the image stack here.
+	std::unordered_map<int, std::unique_ptr<PngWriter>> images;
+
 	for (int x = 0; x < CHUNKS_PER_SUPERCHUNK; ++x) {
 		for (int z = 0; z < CHUNKS_PER_SUPERCHUNK; ++z) {
 			int i = (x * CHUNKS_PER_SUPERCHUNK) + z;
@@ -286,95 +436,42 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 				for (int bx = 0; bx < BLOCKS_PER_CHUNK; ++bx) {
 					for (int by = 0; by < BLOCKS_PER_CHUNK; ++by) {
 						for (int bz = 0; bz < BLOCKS_PER_CHUNK; ++bz) {
-							size_t idx = (((bx * 16) + by) * 16) + bz;
+							//size_t idx = (((bx * BLOCKS_PER_CHUNK) + by) * BLOCKS_PER_CHUNK) + bz;
+							size_t idx = (((bx * BLOCKS_PER_CHUNK) + bz) * BLOCKS_PER_CHUNK) + by;
 							const auto &block = (*subchunk[0])[idx];
-							std::cout << idx << " = " << block << std::endl;
+							//std::cout << idx << " = " << block << std::endl;
+
+							int ix = (x * BLOCKS_PER_CHUNK) + bx;
+							int iy = (y * BLOCKS_PER_CHUNK) + by;
+							int iz = (z * BLOCKS_PER_CHUNK) + bz;
+
+							if (!images[iy]) {
+								std::ostringstream filename;
+								filename << "output/tile_" << key.x << "_" << key.z << "_" << iy << ".png";
+								images[iy] = std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK);
+							}
+
+							auto blockName = block.at("name").as<nbt::tag_string>().get();
+							if (blockName != "minecraft:air") {
+								auto blockHash = std::hash<std::string>{}(blockName);
+								images[iy]->setPixel(ix, iz, blockHash & 0xFF, (blockHash >> 8) & 0xFF, (blockHash >> 16) & 0xFF);
+							}
+
+							// TODO: Use Block2D data to implement the top-down view from MCPE Viz
 						}
 					}
 				}
 			}
 		}
 	}
+
+	for (const auto &it : images) {
+		it.second->write();
+	}
 }
-
-// TODO: Consider options for palleted PNGs, should be much smaller with what we're writing.
-// Pack RGBA and use as a map key to the palette index?
-class PngWriter
-{
-public:
-	PngWriter(const std::string &filename, uint32_t width, uint32_t height):
-		filename(filename), width(width), height(height) {}
-
-	void set_pixel(uint32_t x, uint32_t y, int8_t r, int8_t g, int8_t b, int8_t a) {
-
-	}
-
-	void write() {
-		std::ofstream stream(filename, std::ios_base::out | std::ios_base::binary);
-
-		png_struct *context = png_create_write_struct_2(PNG_LIBPNG_VER_STRING, nullptr, [](png_struct *ctx, const char *msg) {
-			throw std::runtime_error(msg);
-		}, [](png_struct *ctx, const char *msg) {
-			std::cerr << "libpng warning: " << msg << std::endl;
-		}, nullptr, [](png_struct *ctx, size_t len) {
-			return malloc(len);
-		}, [](png_struct *ctx, void *ptr) {
-			return free(ptr);
-		});
-
-		png_info *info = png_create_info_struct(context);
-
-		png_set_write_fn(context, &stream, [](png_struct *ctx, png_byte *data, size_t length) {
-			std::ostream *file = reinterpret_cast<std::ostream *>(png_get_io_ptr(ctx));
-			if (!file->write(reinterpret_cast<char *>(data), length)) {
-				png_error(ctx, "write error");
-			}
-		}, [](png_struct *ctx) {
-			std::ostream *file = reinterpret_cast<std::ostream *>(png_get_io_ptr(ctx));
-			if (!file->flush()) {
-				png_error(ctx, "flush error");
-			}
-		});
-
-		png_set_IHDR(context, info, width, height, 8, PNG_COLOR_TYPE_RGB_ALPHA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-
-		// png_set_PLTE ?
-
-		png_write_info(context, info);
-
-		std::vector<png_byte> data = {
-				255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255,
-				255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255,
-				255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255,
-				255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255, 255, 0, 255, 255,
-		};
-
-		std::vector<png_byte *> rows = {
-			&data[0], &data[16], &data[32], &data[48],
-		};
-
-		png_write_image(context, rows.data());
-
-		png_write_end(context, info);
-
-		png_destroy_write_struct(&context, &info);
-
-		stream.close();
-	}
-
-private:
-	std::string filename;
-	uint32_t width;
-	uint32_t height;
-};
 
 int main()
 {
-	PngWriter pngWriter("test.png", 4, 4);
-	pngWriter.write();
-
-	return 0;
-
 	leveldb::Options options;
 
 	//create a bloom filter to quickly tell if a key is in the database or not
@@ -397,7 +494,8 @@ int main()
 	readOptions.decompress_allocator = new leveldb::DecompressAllocator();
 
 	leveldb::DB *db;
-	leveldb::Status status = leveldb::DB::Open(options, "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\4t08XdwoCQA=\\db", &db);
+	//leveldb::Status status = leveldb::DB::Open(options, "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\4t08XdwoCQA=\\db", &db);
+	leveldb::Status status = leveldb::DB::Open(options, "C:\\Users\\Asher Baker\\Dropbox\\4t08XdwoCQA=\\db", &db);
 
 	std::cout << "Iterating all keys to build superchunks ";
 
