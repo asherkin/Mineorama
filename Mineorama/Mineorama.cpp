@@ -11,7 +11,6 @@
 #include <io/stream_reader.h>
 #include <tag_string.h>
 
-#define PNG_DEBUG 3
 #include <png.h>
 
 #include <iostream>
@@ -21,6 +20,17 @@
 #include <thread>
 #include <atomic>
 #include <fstream>
+
+// Paths
+constexpr auto WORLD_PATH = "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\My World\\db";
+constexpr auto OUTPUT_PATH = "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\output";
+
+// Configurable knobs.
+constexpr int THREAD_COUNT = 0; // 0 = Auto
+constexpr int CHUNKS_PER_SUPERCHUNK = 32; // 1 - 64 tested, should probably be a ^2
+
+// Actually a constant.
+constexpr int BLOCKS_PER_CHUNK = 16;
 
 enum class Tag : int8_t {
 	Unknown = 0,
@@ -93,13 +103,6 @@ namespace std {
 		}
 	};
 }
-
-// Configurable knobs.
-constexpr int THREAD_COUNT = 0; // 0 = Auto
-constexpr int CHUNKS_PER_SUPERCHUNK = 16; // 1 - 64 tested, should probably be a ^2
-
-// Actually a constant.
-constexpr int BLOCKS_PER_CHUNK = 16;
 
 typedef std::bitset<CHUNKS_PER_SUPERCHUNK * CHUNKS_PER_SUPERCHUNK> ChunkBitset;
 typedef std::unordered_map<SuperchunkKey, ChunkBitset> SuperchunkMap;
@@ -264,7 +267,7 @@ public:
 	{
 		auto blackIdx = getOrAddPaletteIndex(0, 0, 0);
 
-		pixels = std::vector<size_t>(width * height, blackIdx);
+		pixels = std::vector<png_byte>(width * height, blackIdx);
 	}
 
 	void setPixel(uint32_t x, uint32_t y, uint8_t r, uint8_t g, uint8_t b)
@@ -296,70 +299,48 @@ public:
 		png_info *info = png_create_info_struct(context);
 
 		png_set_write_fn(context, &stream, [](png_struct *ctx, png_byte *data, size_t length) {
-			std::ostream *file = reinterpret_cast<std::ostream *>(png_get_io_ptr(ctx));
+			auto file = reinterpret_cast<decltype(&stream)>(png_get_io_ptr(ctx));
 			if (!file->write(reinterpret_cast<char *>(data), length)) {
 				png_error(ctx, "write error");
 			}
 		}, [](png_struct *ctx) {
-			std::ostream *file = reinterpret_cast<std::ostream *>(png_get_io_ptr(ctx));
+			auto file = reinterpret_cast<decltype(&stream)>(png_get_io_ptr(ctx));
 			if (!file->flush()) {
 				png_error(ctx, "flush error");
 			}
 		});
 
-		// TODO: We might be able to encode using less than 8bpp if the palette is small enough.
-		int colorType = encodeUsingPalette() ? PNG_COLOR_TYPE_PALETTE : PNG_COLOR_TYPE_RGB;
-		png_set_IHDR(context, info, width, height, 8, colorType, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+		// Favor speed over size.
+		png_set_filter(context, PNG_FILTER_TYPE_BASE, PNG_FILTER_NONE);
+		png_set_compression_strategy(context, 0); // Z_DEFAULT_STRATEGY
+		png_set_compression_level(context, 1); // Z_BEST_SPEED
 
-		if (encodeUsingPalette()) {
-			png_set_PLTE(context, info, palette.data(), static_cast<int>(palette.size()));
-		}
+		// TODO: We might be able to encode using less than 8bpp if the palette is small enough.
+		// But probably not worth it as we'll need to re-pack the rows.
+		png_set_IHDR(context, info, width, height, 8, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+
+		png_set_PLTE(context, info, palette.data(), static_cast<int>(palette.size()));
 
 		png_write_info(context, info);
 
-		std::vector<png_byte> rowBytes;
-		std::vector<png_byte *> rowsPtrs;
-		if (encodeUsingPalette()) {
-			rowBytes.reserve(pixels.size());
-			for (uint32_t y = 0; y < height; ++y) {
-				for (uint32_t x = 0; x < width; ++x) {
-					auto idx = pixels[(y * width) + x];
-					rowBytes.push_back(static_cast<png_byte>(idx));
-				}
-				rowsPtrs.push_back(&rowBytes[y * width]);
-			}
-		} else {
-			rowBytes.reserve(pixels.size() * 3);
-			for (uint32_t y = 0; y < height; ++y) {
-				for (uint32_t x = 0; x < width; ++x) {
-					auto idx = pixels[(y * width) + x];
-					const auto &color = palette[idx];
-					rowBytes.push_back(color.red);
-					rowBytes.push_back(color.green);
-					rowBytes.push_back(color.blue);
-				}
-				rowsPtrs.push_back(&rowBytes[y * width * 3]);
-			}
+		for (uint32_t y = 0; y < height; ++y) {
+			png_write_row(context, &pixels[y * width]);
 		}
-
-		png_write_image(context, rowsPtrs.data());
 
 		png_write_end(context, info);
 
 		png_destroy_write_struct(&context, &info);
 
 		stream.close();
+
+#if 0
+		PngWriter::stats.imagesGenerated++;
+		PngWriter::stats.paletteSizeDistribution[palette.size()]++;
+#endif
 	}
 
 private:
-	bool encodeUsingPalette() const
-	{
-		// TODO: Need to evaluate this on the real output images,
-		// on simple gradients palette encoding is worse due to delta-compression.
-		return palette.size() <= std::numeric_limits<uint8_t>::max();
-	}
-
-	size_t getOrAddPaletteIndex(uint8_t r, uint8_t g, uint8_t b)
+	png_byte getOrAddPaletteIndex(uint8_t r, uint8_t g, uint8_t b)
 	{
 		png_color color{ r, g, b };
 
@@ -369,10 +350,14 @@ private:
 		}
 
 		auto idx = palette.size();
-		palette.push_back(color);
-		paletteMap[color] = idx;
+		if (idx >= std::numeric_limits<png_byte>::max()) {
+			throw std::runtime_error("too many colors in palette");
+		}
 
-		return idx;
+		palette.push_back(color);
+		paletteMap[color] = static_cast<png_byte>(idx);
+
+		return static_cast<png_byte>(idx);
 	}
 
 private:
@@ -381,15 +366,26 @@ private:
 	uint32_t height;
 
 	std::vector<png_color> palette;
-	std::unordered_map<png_color, size_t> paletteMap;
+	std::unordered_map<png_color, png_byte> paletteMap;
 
-	std::vector<size_t> pixels;
+	std::vector<png_byte> pixels;
+
+#if 0
+private:
+	static struct PngWriterStats {
+		size_t imagesGenerated;
+		size_t paletteSizeDistribution[256];
+	} stats;
+#endif
 };
+
+#if 0
+PngWriter::PngWriterStats PngWriter::stats;
+#endif
 
 void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, const SuperchunkKey &key, const ChunkBitset &bitmap)
 {
-	// TODO: Build the image stack here.
-	std::unordered_map<int, std::unique_ptr<PngWriter>> images;
+	std::map<int, std::unique_ptr<PngWriter>> images;
 
 	for (int x = 0; x < CHUNKS_PER_SUPERCHUNK; ++x) {
 		for (int z = 0; z < CHUNKS_PER_SUPERCHUNK; ++z) {
@@ -436,7 +432,6 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 				for (int bx = 0; bx < BLOCKS_PER_CHUNK; ++bx) {
 					for (int by = 0; by < BLOCKS_PER_CHUNK; ++by) {
 						for (int bz = 0; bz < BLOCKS_PER_CHUNK; ++bz) {
-							//size_t idx = (((bx * BLOCKS_PER_CHUNK) + by) * BLOCKS_PER_CHUNK) + bz;
 							size_t idx = (((bx * BLOCKS_PER_CHUNK) + bz) * BLOCKS_PER_CHUNK) + by;
 							const auto &block = (*subchunk[0])[idx];
 							//std::cout << idx << " = " << block << std::endl;
@@ -447,17 +442,18 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 
 							if (!images[iy]) {
 								std::ostringstream filename;
-								filename << "output/tile_" << key.x << "_" << key.z << "_" << iy << ".png";
+								filename << OUTPUT_PATH << "/tile_" << key.dimension << "_" << iy << "_" << key.x << "_" << key.z << ".png";
 								images[iy] = std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK);
 							}
 
-							auto blockName = block.at("name").as<nbt::tag_string>().get();
+							const auto &blockName = block.at("name").as<nbt::tag_string>().get();
 							if (blockName != "minecraft:air") {
 								auto blockHash = std::hash<std::string>{}(blockName);
 								images[iy]->setPixel(ix, iz, blockHash & 0xFF, (blockHash >> 8) & 0xFF, (blockHash >> 16) & 0xFF);
 							}
 
 							// TODO: Use Block2D data to implement the top-down view from MCPE Viz
+							// TODO: What about the nether though? It's probably fine, Nether is fixed height.
 						}
 					}
 				}
@@ -474,28 +470,27 @@ int main()
 {
 	leveldb::Options options;
 
-	//create a bloom filter to quickly tell if a key is in the database or not
+	// Create a bloom filter to quickly tell if a key is in the database or not
 	options.filter_policy = leveldb::NewBloomFilterPolicy(10);
 
-	//create a 100 mb cache
-	options.block_cache = leveldb::NewLRUCache(100 * 1024 * 1024);
+	// Create a 16 mb cache, tuning this doesn't really impact performance at all with our workload
+	options.block_cache = leveldb::NewLRUCache(16 * 1024 * 1024);
 
-	//create a 4mb write buffer, to improve compression and touch the disk less
+	// Create a 4mb write buffer, to improve compression and touch the disk less
 	options.write_buffer_size = 4 * 1024 * 1024;
 
-	//use the new raw-zip compressor to write (and read)
+	// Use the new raw-zip compressor to write (and read)
 	options.compressors[0] = new leveldb::ZlibCompressorRaw(-1);
 
-	//also setup the old, slower compressor for backwards compatibility. This will only be used to read old compressed blocks.
+	// Also setup the old, slower compressor for backwards compatibility. This will only be used to read old compressed blocks.
 	options.compressors[1] = new leveldb::ZlibCompressor();
 
-	//create a reusable memory space for decompression so it allocates less
+	// Create a reusable memory space for decompression so it allocates less
 	leveldb::ReadOptions readOptions;
 	readOptions.decompress_allocator = new leveldb::DecompressAllocator();
 
 	leveldb::DB *db;
-	//leveldb::Status status = leveldb::DB::Open(options, "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\4t08XdwoCQA=\\db", &db);
-	leveldb::Status status = leveldb::DB::Open(options, "C:\\Users\\Asher Baker\\Dropbox\\4t08XdwoCQA=\\db", &db);
+	leveldb::Status status = leveldb::DB::Open(options, WORLD_PATH, &db);
 
 	std::cout << "Iterating all keys to build superchunks ";
 
@@ -620,34 +615,6 @@ int main()
 		chunkKey.z = chunkKey.z / CHUNKS_PER_SUPERCHUNK;
 
 		g_Superchunks[chunkKey][idx] = true;
-
-		//if (chunkKey.dimension == 0 && chunkKey.x == 0 && chunkKey.z == 0) {
-		//	std::cout << string_to_hex(name) << " " << size << std::endl;
-		//}
-		continue;
-	
-		//if (size == 43 && iter->key().starts_with("player_")) {
-		//	std::cout << size << " " << iter->key().data() << std::endl;
-		{
-			//std::cout << size << std::endl;
-
-			std::string value = iter->value().ToString();
-			std::istringstream is(value);
-			nbt::io::stream_reader reader(is, endian::little);
-
-			while (is && is.peek() != EOF) {
-				try {
-					auto t = reader.read_compound();
-					std::cout << "\"" << t.first << "\" = " << *t.second << std::endl;
-				} catch (std::exception) {
-
-				}
-			}
-
-			if (!is) {
-				// throw std::runtime_error("truncated?");
-			}
-		}
 	}
 
 	std::cout << " Done" << std::endl;
@@ -659,7 +626,9 @@ int main()
 	}
 
 	std::cout << "Chunk count: " << count << std::endl;
-	std::cout << "Superchunk count: " << g_Superchunks.size() << std::endl;
+
+	auto total = g_Superchunks.size();
+	std::cout << "Superchunk count: " << total << std::endl;
 
 	if (count != bitcount) {
 		throw std::runtime_error("sanity check failed, chunk count != bitcount");
@@ -668,15 +637,14 @@ int main()
 	unsigned int thread_count = (THREAD_COUNT != 0) ? THREAD_COUNT : std::thread::hardware_concurrency();
 	std::cout << "Starting " << thread_count << " worker threads..." << std::endl;
 
+	size_t done = 0;
 	std::vector<std::thread> workers;
 
-#if 1
-	// Eager queue. (THIS IS FASTER, AND BETTER WORK BALANCE)
 	std::mutex chunk_mutex;
 	auto chunk = g_Superchunks.cbegin();
 	auto end = g_Superchunks.cend();
 	for (unsigned int i = 0; i < thread_count; ++i) {
-		workers.emplace_back([i, &chunk_mutex, &chunk, &end, db, &readOptions]() {
+		workers.emplace_back([i, total, &done, &chunk_mutex, &chunk, &end, db, &readOptions]() {
 			while (true) {
 				std::pair<SuperchunkKey, ChunkBitset> it;
 				{
@@ -685,39 +653,17 @@ int main()
 						break;
 					}
 					it = *chunk++;
+
+					std::cout << "Processing superchunk " << done++ << " / " << total << std::endl;
 				}
 
 				process_superchunk(db, readOptions, it.first, it.second);
 			}
 		});
 	}
-#else
-	// Cache locality
-	auto start = g_Superchunks.cbegin();
-	auto per_thread = g_Superchunks.size() / thread_count;
-
-	for (unsigned int i = 0; i < thread_count; ++i) {
-		auto end = start;
-		if (i == (thread_count - 1)) {
-			end = g_Superchunks.cend();
-		} else {
-			for (size_t ii = 0; ii < per_thread; ++ii) {
-				end++;
-			}
-		}
-		workers.emplace_back([i, start, end]() {
-			for (auto it = start; it != end; ++it) {
-				process_superchunk(db, readOptions, it->first, it->second);
-			}
-		});
-		start = end;
-	}
-#endif
 
 	for (auto &it : workers) {
-		if (it.joinable()) {
-			it.join();
-		}
+		it.join();
 	}
 	workers.clear();
 
