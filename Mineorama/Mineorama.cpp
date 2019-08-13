@@ -1,220 +1,45 @@
 // Mineorama.cpp : This file contains the 'main' function. Program execution begins and ends there.
 //
 
-#include <leveldb/db.h>
-#include <leveldb/env.h>
-#include <leveldb/filter_policy.h>
+#include "BlockStorage.h"
+#include "ChunkDbKey.h"
+#include "Helpers.h"
+#include "Minecraft.h"
+#include "PngWriter.h"
+#include "SuperchunkKey.h"
+
 #include <leveldb/cache.h>
-#include <leveldb/zlib_compressor.h>
+#include <leveldb/db.h>
 #include <leveldb/decompress_allocator.h>
+#include <leveldb/filter_policy.h>
+#include <leveldb/zlib_compressor.h>
 
-#include <io/stream_reader.h>
+#include <tag_primitive.h>
 #include <tag_string.h>
+#include <tag_compound.h>
 
-#include <png.h>
-
+#include <bitset>
 #include <iostream>
 #include <sstream>
-#include <unordered_map>
-#include <bitset>
 #include <thread>
-#include <atomic>
-#include <fstream>
+#include <unordered_map>
+#include <vector>
 
 // Paths
-constexpr auto WORLD_PATH = "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\My World\\db";
-constexpr auto OUTPUT_PATH = "C:\\Users\\asherkin\\Downloads\\mcpe_viz-master\\work\\output";
+constexpr auto WORLD_PATH = R"(C:\Users\asherkin\Downloads\mcpe_viz-master\work\My World\db)";
+constexpr auto OUTPUT_PATH = R"(C:\Users\asherkin\Downloads\mcpe_viz-master\work\output)";
 
 // Configurable knobs.
 constexpr int THREAD_COUNT = 0; // 0 = Auto
-constexpr int CHUNKS_PER_SUPERCHUNK = 32; // 1 - 64 tested, should probably be a ^2
+constexpr int CHUNKS_PER_SUPERCHUNK = 32; // 1 - 256 tested, should probably be a ^2
+// 256 needs ~2000MB per thread, 4096x4096 output
+// 128 needs ~500MB per thread, 2048x2048 output
+// 64 needs ~125MB per thread, 1024x1024 output
+// 32 needs ~30MB per thread, 512x512 output
 
-// Actually a constant.
-constexpr int BLOCKS_PER_CHUNK = 16;
-
-enum class Tag : int8_t {
-	Unknown = 0,
-	Data2D = 45,
-	Data2DLegacy = 46,
-	SubChunkPrefix = 47,
-	LegacyTerrain = 48,
-	BlockEntity = 49,
-	Entity = 50,
-	PendingTicks = 51,
-	BlockExtraData = 52,
-	BiomeState = 53,
-	FinalizedState = 54,
-	Version = 118
-};
-
-struct ChunkDbKey {
-	int32_t x;
-	int32_t z;
-	int32_t dimension;
-	Tag tag;
-	int8_t subchunk;
-
-	operator leveldb::Slice()
-	{
-		size_t required = sizeof(x) + sizeof(z) + sizeof(tag);
-		if (dimension != 0) required += sizeof(dimension);
-		if (subchunk >= 0) required += sizeof(subchunk);
-
-		buffer.resize(required);
-		memcpy(static_cast<void *>(buffer.data()), &x, sizeof(x));
-		memcpy(static_cast<void *>(buffer.data() + sizeof(x)), &z, sizeof(z));
-		if (dimension != 0) {
-			memcpy(static_cast<void *>(buffer.data() + sizeof(x) + sizeof(z)), &dimension, sizeof(dimension));
-			memcpy(static_cast<void *>(buffer.data() + sizeof(x) + sizeof(z) + sizeof(dimension)), &tag, sizeof(tag));
-			if (subchunk >= 0) {
-				memcpy(static_cast<void *>(buffer.data() + sizeof(x) + sizeof(z) + sizeof(dimension) + sizeof(tag)), &subchunk, sizeof(subchunk));
-			}
-		} else {
-			memcpy(static_cast<void *>(buffer.data() + sizeof(x) + sizeof(z)), &tag, sizeof(tag));
-			if (subchunk >= 0) {
-				memcpy(static_cast<void *>(buffer.data() + sizeof(x) + sizeof(z) + sizeof(tag)), &subchunk, sizeof(subchunk));
-			}
-		}
-
-		return leveldb::Slice(buffer.data(), buffer.size());
-	}
-
-private:
-	std::vector<char> buffer;
-};
-
-struct SuperchunkKey {
-	int32_t dimension;
-	int32_t x;
-	int32_t z;
-
-	bool operator==(const SuperchunkKey &other) const
-	{
-		return dimension == other.dimension && x == other.x && z == other.z;
-	}
-};
-
-namespace std {
-	template<> struct hash<SuperchunkKey>
-	{
-		size_t operator()(const SuperchunkKey &x) const
-		{
-			return std::hash<int32_t>{}(x.dimension) ^ std::hash<int32_t>{}(x.x) ^ std::hash<int32_t>{}(x.z);
-		}
-	};
-}
-
-typedef std::bitset<CHUNKS_PER_SUPERCHUNK * CHUNKS_PER_SUPERCHUNK> ChunkBitset;
-typedef std::unordered_map<SuperchunkKey, ChunkBitset> SuperchunkMap;
+using ChunkBitset = std::bitset<CHUNKS_PER_SUPERCHUNK * CHUNKS_PER_SUPERCHUNK>;
+using SuperchunkMap = std::unordered_map<SuperchunkKey, ChunkBitset>;
 SuperchunkMap g_Superchunks;
-
-std::string string_to_hex(const std::string &input)
-{
-	static const char *const lut = "0123456789ABCDEF";
-	size_t len = input.length();
-
-	std::string output;
-	output.reserve(2 * len);
-	for (size_t i = 0; i < len; ++i)
-	{
-		const unsigned char c = input[i];
-		output.push_back(lut[c >> 4]);
-		output.push_back(lut[c & 15]);
-	}
-	return output;
-}
-
-std::string superchunk_to_string(ChunkBitset bitmap)
-{
-	std::string output;
-	const auto size = bitmap.size();
-	output.reserve(size * 2);
-	for (size_t i = 0; i < size; ++i) {
-		const auto bit = bitmap[i] != 0;
-		output.push_back(bit ? 'X' : ' ');
-		if ((i % CHUNKS_PER_SUPERCHUNK) == (CHUNKS_PER_SUPERCHUNK - 1)) {
-			output.push_back('\n');
-		} else {
-			output.push_back(' ');
-		}
-	}
-	return output;
-}
-
-int read_signed_varint(const std::string &data, size_t &cursor)
-{
-	int result = 0;
-	for (int i = 0; i <= 5; ++i) {
-		int8_t value;
-		memcpy(&value, data.data() + cursor, sizeof(int8_t));
-		cursor += sizeof(int8_t);
-
-		result |= (value & ~(1 << 7)) << (7 * i);
-
-		if ((value & (1 << 7)) == 0) {
-			return result;
-		}
-	}
-
-	throw std::runtime_error("SVarInt used too many bytes");
-}
-
-class BlockStorage
-{
-public:
-	BlockStorage(std::istream &stream) {
-		stream.read(reinterpret_cast<char *>(&bitsPerBlock), sizeof(int8_t));
-
-		if ((bitsPerBlock & 1) == 1) {
-			throw std::runtime_error("block storages persisted for network transfer are not supported");
-		}
-		bitsPerBlock >>= 1;
-
-		int blockWords = (BLOCKS_PER_CHUNK * BLOCKS_PER_CHUNK * BLOCKS_PER_CHUNK) / (32 / bitsPerBlock);
-		if ((32 % bitsPerBlock) != 0) {
-			blockWords += 1;
-		}
-
-		blockData.resize(blockWords);
-		stream.read(reinterpret_cast<char *>(&blockData[0]), blockWords * sizeof(int32_t));
-
-		int32_t paletteCount;
-		stream.read(reinterpret_cast<char *>(&paletteCount), sizeof(int32_t));
-		palette.reserve(paletteCount);
-
-		nbt::io::stream_reader reader(stream, endian::little);
-		for (int pi = 0; pi < paletteCount; ++pi) {
-			auto tag = reader.read_compound();
-			palette.push_back(std::move(tag.second));
-		}
-	}
-
-	BlockStorage(const BlockStorage &) = delete;
-	void operator=(const BlockStorage &) = delete;
-
-	const nbt::tag_compound &operator[](size_t idx) const {
-		if (idx > (BLOCKS_PER_CHUNK * BLOCKS_PER_CHUNK * BLOCKS_PER_CHUNK)) {
-			throw std::runtime_error("block request out of bounds");
-		}
-
-		size_t wordIdx = idx / (32 / bitsPerBlock);
-		uint32_t blockWord = blockData[wordIdx];
-
-		size_t wordOffs = (idx % (32 / bitsPerBlock)) * bitsPerBlock;
-		uint32_t blockIdx = (blockWord >> wordOffs) & (0xffffffffUL >> (32 - bitsPerBlock));
-
-		if (blockIdx >= palette.size()) {
-			throw std::runtime_error("block index out of bounds of palette");
-		}
-
-		return *palette[blockIdx];
-	}
-
-private:
-	int8_t bitsPerBlock;
-	std::vector<uint32_t> blockData;
-	std::vector<std::unique_ptr<nbt::tag_compound>> palette;
-};
 
 std::vector<std::unique_ptr<BlockStorage>> parse_subchunk(const std::string &data)
 {
@@ -245,147 +70,9 @@ std::vector<std::unique_ptr<BlockStorage>> parse_subchunk(const std::string &dat
 	return storages;
 }
 
-namespace std {
-	template<> struct hash<png_color>
-	{
-		size_t operator()(const png_color &x) const
-		{
-			return std::hash<int32_t>{}((x.red << 16) | (x.green << 8) | x.blue);
-		}
-	};
-}
-
-inline bool operator==(const png_color &lhs, const png_color &rhs) {
-	return lhs.red == rhs.red && lhs.green == rhs.green && lhs.blue == rhs.blue;
-}
-
-class PngWriter
-{
-public:
-	PngWriter(const std::string &filename, uint32_t width, uint32_t height) :
-		filename(filename), width(width), height(height)
-	{
-		auto blackIdx = getOrAddPaletteIndex(0, 0, 0);
-
-		pixels = std::vector<png_byte>(width * height, blackIdx);
-	}
-
-	void setPixel(uint32_t x, uint32_t y, uint8_t r, uint8_t g, uint8_t b)
-	{
-		if (x >= width || y >= height) {
-			throw std::runtime_error("pixel index out of bounds");
-		}
-
-		pixels[(y * width) + x] = getOrAddPaletteIndex(r, g, b);
-	}
-
-	void write() const
-	{
-		std::ofstream stream(filename, std::ios_base::out | std::ios_base::binary);
-		if (!stream) {
-			throw std::runtime_error("Failed to open " + filename + " for writing");
-		}
-
-		png_struct *context = png_create_write_struct_2(PNG_LIBPNG_VER_STRING, nullptr, [](png_struct *ctx, const char *msg) {
-			throw std::runtime_error(msg);
-		}, [](png_struct *ctx, const char *msg) {
-			std::cerr << "libpng warning: " << msg << std::endl;
-		}, nullptr, [](png_struct *ctx, size_t len) {
-			return malloc(len);
-		}, [](png_struct *ctx, void *ptr) {
-			return free(ptr);
-		});
-
-		png_info *info = png_create_info_struct(context);
-
-		png_set_write_fn(context, &stream, [](png_struct *ctx, png_byte *data, size_t length) {
-			auto file = reinterpret_cast<decltype(&stream)>(png_get_io_ptr(ctx));
-			if (!file->write(reinterpret_cast<char *>(data), length)) {
-				png_error(ctx, "write error");
-			}
-		}, [](png_struct *ctx) {
-			auto file = reinterpret_cast<decltype(&stream)>(png_get_io_ptr(ctx));
-			if (!file->flush()) {
-				png_error(ctx, "flush error");
-			}
-		});
-
-		// Favor speed over size.
-		png_set_filter(context, PNG_FILTER_TYPE_BASE, PNG_FILTER_NONE);
-		png_set_compression_strategy(context, 0); // Z_DEFAULT_STRATEGY
-		png_set_compression_level(context, 1); // Z_BEST_SPEED
-
-		// TODO: We might be able to encode using less than 8bpp if the palette is small enough.
-		// But probably not worth it as we'll need to re-pack the rows.
-		png_set_IHDR(context, info, width, height, 8, PNG_COLOR_TYPE_PALETTE, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
-
-		png_set_PLTE(context, info, palette.data(), static_cast<int>(palette.size()));
-
-		png_write_info(context, info);
-
-		for (uint32_t y = 0; y < height; ++y) {
-			png_write_row(context, &pixels[y * width]);
-		}
-
-		png_write_end(context, info);
-
-		png_destroy_write_struct(&context, &info);
-
-		stream.close();
-
-#if 0
-		PngWriter::stats.imagesGenerated++;
-		PngWriter::stats.paletteSizeDistribution[palette.size()]++;
-#endif
-	}
-
-private:
-	png_byte getOrAddPaletteIndex(uint8_t r, uint8_t g, uint8_t b)
-	{
-		png_color color{ r, g, b };
-
-		const auto &it = paletteMap.find(color);
-		if (it != paletteMap.end()) {
-			return it->second;
-		}
-
-		auto idx = palette.size();
-		if (idx >= std::numeric_limits<png_byte>::max()) {
-			throw std::runtime_error("too many colors in palette");
-		}
-
-		palette.push_back(color);
-		paletteMap[color] = static_cast<png_byte>(idx);
-
-		return static_cast<png_byte>(idx);
-	}
-
-private:
-	std::string filename;
-	uint32_t width;
-	uint32_t height;
-
-	std::vector<png_color> palette;
-	std::unordered_map<png_color, png_byte> paletteMap;
-
-	std::vector<png_byte> pixels;
-
-#if 0
-private:
-	static struct PngWriterStats {
-		size_t imagesGenerated;
-		size_t paletteSizeDistribution[256];
-	} stats;
-#endif
-};
-
-#if 0
-PngWriter::PngWriterStats PngWriter::stats;
-#endif
-
 void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, const SuperchunkKey &key, const ChunkBitset &bitmap)
 {
-	std::map<int, std::unique_ptr<PngWriter>> images;
+	std::vector<std::unique_ptr<PngWriter>> images;
 
 	for (int x = 0; x < CHUNKS_PER_SUPERCHUNK; ++x) {
 		for (int z = 0; z < CHUNKS_PER_SUPERCHUNK; ++z) {
@@ -430,8 +117,8 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 				auto subchunk = parse_subchunk(value);
 
 				for (int bx = 0; bx < BLOCKS_PER_CHUNK; ++bx) {
-					for (int by = 0; by < BLOCKS_PER_CHUNK; ++by) {
-						for (int bz = 0; bz < BLOCKS_PER_CHUNK; ++bz) {
+					for (int bz = 0; bz < BLOCKS_PER_CHUNK; ++bz) {
+						for (int by = 0; by < BLOCKS_PER_CHUNK; ++by) {
 							size_t idx = (((bx * BLOCKS_PER_CHUNK) + bz) * BLOCKS_PER_CHUNK) + by;
 							const auto &block = (*subchunk[0])[idx];
 							//std::cout << idx << " = " << block << std::endl;
@@ -440,20 +127,22 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 							int iy = (y * BLOCKS_PER_CHUNK) + by;
 							int iz = (z * BLOCKS_PER_CHUNK) + bz;
 
-							if (!images[iy]) {
+							if (iy >= images.size()) {
 								std::ostringstream filename;
 								filename << OUTPUT_PATH << "/tile_" << key.dimension << "_" << iy << "_" << key.x << "_" << key.z << ".png";
-								images[iy] = std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK);
+								images.push_back(std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK));
 							}
 
 							const auto &blockName = block.at("name").as<nbt::tag_string>().get();
 							if (blockName != "minecraft:air") {
 								auto blockHash = std::hash<std::string>{}(blockName);
-								images[iy]->setPixel(ix, iz, blockHash & 0xFF, (blockHash >> 8) & 0xFF, (blockHash >> 16) & 0xFF);
+								PngWriter::Color blockColor{ blockHash & 0xFF, (blockHash >> 8) & 0xFF, (blockHash >> 16) & 0xFF };
+								images[iy]->setPixel(ix, iz, blockColor);
 							}
 
 							// TODO: Use Block2D data to implement the top-down view from MCPE Viz
 							// TODO: What about the nether though? It's probably fine, Nether is fixed height.
+							// TODO: Doing this in a 2nd pass instead, see below.
 						}
 					}
 				}
@@ -461,8 +150,29 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 		}
 	}
 
+#if 0
+	// Loop again to fill blocks up to the top, has too be after all layer images are generated
+	for (int x = 0; x < CHUNKS_PER_SUPERCHUNK; ++x) {
+		for (int z = 0; z < CHUNKS_PER_SUPERCHUNK; ++z) {
+			int i = (x * CHUNKS_PER_SUPERCHUNK) + z;
+			if (!bitmap[i]) {
+				// There is no chunk here.
+				continue;
+			}
+
+			for (int bx = 0; bx < BLOCKS_PER_CHUNK; ++bx) {
+				for (int bz = 0; bz < BLOCKS_PER_CHUNK; ++bz) {
+
+				}
+			}
+		}
+	}
+#endif
+
+	// TODO: Store the highest image layer index somewhere for the web viewer to use
+
 	for (const auto &it : images) {
-		it.second->write();
+		it->write();
 	}
 }
 

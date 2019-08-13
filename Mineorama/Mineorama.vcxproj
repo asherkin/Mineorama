@@ -155,7 +155,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="BlockStorage.cpp" />
+    <ClCompile Include="ChunkDbKey.cpp" />
+    <ClCompile Include="Helpers.cpp" />
     <ClCompile Include="Mineorama.cpp" />
+    <ClCompile Include="PngWriter.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\LevelDB\LevelDB.vcxproj">
@@ -167,6 +171,14 @@
     <ProjectReference Include="..\png\png.vcxproj">
       <Project>{a1f38ecd-1ece-466d-afd8-a9b752aac609}</Project>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BlockStorage.h" />
+    <ClInclude Include="ChunkDbKey.h" />
+    <ClInclude Include="Helpers.h" />
+    <ClInclude Include="Minecraft.h" />
+    <ClInclude Include="PngWriter.h" />
+    <ClInclude Include="SuperchunkKey.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
