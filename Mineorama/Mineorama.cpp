@@ -41,6 +41,32 @@ using ChunkBitset = std::bitset<CHUNKS_PER_SUPERCHUNK * CHUNKS_PER_SUPERCHUNK>;
 using SuperchunkMap = std::unordered_map<SuperchunkKey, ChunkBitset>;
 SuperchunkMap g_Superchunks;
 
+namespace std {
+	template<> struct hash<pair<string, int16_t>>
+	{
+		size_t operator()(const pair<string, int16_t> &x) const
+		{
+			auto h = hash<string>{}(x.first);
+			hash_combine(h, x.second);
+			return h;
+		}
+	};
+}
+
+std::unordered_map<std::pair<std::string, int16_t>, PngWriter::Color> g_BlockColors;
+
+PngWriter::Color get_color_for_block(const std::string &name, int16_t val) {
+	auto key = std::make_pair(name, val);
+	
+	auto it = g_BlockColors.find(key);
+	if (it != g_BlockColors.end()) {
+		return it->second;
+	}
+
+	auto hash = std::hash<decltype(key)>{}(key);
+	return PngWriter::Color(hash & 0xFF, (hash >> 8) & 0xFF, (hash >> 16) & 0xFF);
+}
+
 std::vector<std::unique_ptr<BlockStorage>> parse_subchunk(const std::string &data)
 {
 	std::istringstream stream(data, std::istringstream::in | std::istringstream::binary);
@@ -72,6 +98,7 @@ std::vector<std::unique_ptr<BlockStorage>> parse_subchunk(const std::string &dat
 
 void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, const SuperchunkKey &key, const ChunkBitset &bitmap)
 {
+	const auto &airColor = get_color_for_block("minecraft:air", 0);
 	std::vector<std::unique_ptr<PngWriter>> images;
 
 	for (int x = 0; x < CHUNKS_PER_SUPERCHUNK; ++x) {
@@ -82,7 +109,10 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 				continue;
 			}
 
-			for (int8_t y = 0; true; ++y) {
+			// 16 * BLOCKS_PER_CHUNK = 256, the max height of the world currently.
+			// Got to have the hard limit here as subchunks can exist above non-existent subchunks.
+			// TODO: Possibly only in the nether? Which could give us a performance increase.
+			for (uint8_t y = 0; y < 16; ++y) {
 				ChunkDbKey chunkKey = {};
 				chunkKey.x = (key.x * CHUNKS_PER_SUPERCHUNK) + x;
 				chunkKey.z = (key.z * CHUNKS_PER_SUPERCHUNK) + z;
@@ -94,6 +124,7 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 				leveldb::Status status = db->Get(options, chunkKey, &value);
 
 				// Subchunks work like a stack, so we loop up until we can't find any more
+				// TODO: This turns out to be a lie, any pure-air subchunk will not exist in the nether.
 				if (status.IsNotFound()) {
 					// If we failed immediately, do a sanity check looking for the version tag
 					if (y == 0) {
@@ -107,7 +138,7 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 						}
 					}
 
-					break;
+					continue; // If the stack worked, this would be a break.
 				}
 
 				if (!status.ok()) {
@@ -127,22 +158,16 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 							int iy = (y * BLOCKS_PER_CHUNK) + by;
 							int iz = (z * BLOCKS_PER_CHUNK) + bz;
 
-							if (iy >= images.size()) {
+							while (iy >= images.size()) {
 								std::ostringstream filename;
 								filename << OUTPUT_PATH << "/tile_" << key.dimension << "_" << iy << "_" << key.x << "_" << key.z << ".png";
-								images.push_back(std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK));
+								images.push_back(std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, airColor));
 							}
 
-							const auto &blockName = block.at("name").as<nbt::tag_string>().get();
-							if (blockName != "minecraft:air") {
-								auto blockHash = std::hash<std::string>{}(blockName);
-								PngWriter::Color blockColor{ blockHash & 0xFF, (blockHash >> 8) & 0xFF, (blockHash >> 16) & 0xFF };
-								images[iy]->setPixel(ix, iz, blockColor);
-							}
-
-							// TODO: Use Block2D data to implement the top-down view from MCPE Viz
-							// TODO: What about the nether though? It's probably fine, Nether is fixed height.
-							// TODO: Doing this in a 2nd pass instead, see below.
+							auto blockName = block.at("name").as<nbt::tag_string>().get();
+							auto blockVal = block.at("val").as<nbt::tag_short>().get();
+							auto blockColor = get_color_for_block(blockName, blockVal);
+							images[iy]->setPixel(ix, iz, blockColor);
 						}
 					}
 				}
@@ -150,8 +175,11 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 		}
 	}
 
-#if 0
-	// Loop again to fill blocks up to the top, has too be after all layer images are generated
+#if 1
+	// Loop again to fill blocks up to the top, has to be after all layer images are generated
+	// TODO: I think this needs to be two different things:
+	//   a) The current looping of blocks ignoring air.
+	//	 b) An overview image that hides top-layers.
 	for (int x = 0; x < CHUNKS_PER_SUPERCHUNK; ++x) {
 		for (int z = 0; z < CHUNKS_PER_SUPERCHUNK; ++z) {
 			int i = (x * CHUNKS_PER_SUPERCHUNK) + z;
@@ -162,7 +190,26 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 
 			for (int bx = 0; bx < BLOCKS_PER_CHUNK; ++bx) {
 				for (int bz = 0; bz < BLOCKS_PER_CHUNK; ++bz) {
+					int ix = (x * BLOCKS_PER_CHUNK) + bx;
+					int iz = (z * BLOCKS_PER_CHUNK) + bz;
 
+					auto color = airColor;
+					auto it = images.rbegin();
+
+					while (it != images.rend()) {
+						color = (*it)->getPixel(ix, iz);
+						if (color != airColor) {
+							break;
+						}
+
+						it++;
+					}
+
+					while (it != images.rbegin()) {
+						it--;
+
+						(*it)->setPixel(ix, iz, color);
+					}
 				}
 			}
 		}
@@ -178,6 +225,8 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 
 int main()
 {
+	g_BlockColors[{ "minecraft:air", 0 }] = PngWriter::Color(0, 0, 0);
+
 	leveldb::Options options;
 
 	// Create a bloom filter to quickly tell if a key is in the database or not

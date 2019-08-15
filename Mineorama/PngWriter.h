@@ -12,9 +12,17 @@ struct PngWriterColor
 	uint8_t green;
 	uint8_t blue;
 
+	PngWriterColor();
+	PngWriterColor(uint8_t r, uint8_t g, uint8_t b);
+
 	inline bool operator==(const PngWriterColor &other) const
 	{
 		return red == other.red && green == other.green && blue == other.blue;
+	}
+
+	inline bool operator!=(const PngWriterColor &other) const
+	{
+		return !(*this == other);
 	}
 };
 
@@ -34,7 +42,7 @@ public:
 	using Color = PngWriterColor;
 
 public:
-	PngWriter(const std::string &filename, uint32_t width, uint32_t height);
+	PngWriter(const std::string &filename, uint32_t width, uint32_t height, const Color &background);
 
 	void setPixel(uint32_t x, uint32_t y, const Color &color);
 	const Color &getPixel(uint32_t x, uint32_t y) const;

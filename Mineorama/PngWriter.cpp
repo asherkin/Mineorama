@@ -13,16 +13,22 @@ static_assert(offsetof(PngWriter::Color, red) == offsetof(png_color, red), "PngW
 static_assert(offsetof(PngWriter::Color, green) == offsetof(png_color, green), "PngWriter::Color::green is not at the same offset as png_color::green");
 static_assert(offsetof(PngWriter::Color, blue) == offsetof(png_color, blue), "PngWriter::Color::blue is not at the same offset as png_color::blue");
 
+PngWriterColor::PngWriterColor() :
+	red(0), green(0), blue(0) {}
+
+PngWriterColor::PngWriterColor(uint8_t r, uint8_t g, uint8_t b) :
+	red(r), green(g), blue(b) {}
+
 #ifdef PNGWRITER_ENABLE_STATS
 PngWriter::PngWriterStats PngWriter::stats;
 #endif
 
-PngWriter::PngWriter(const std::string &filename, uint32_t width, uint32_t height) :
+PngWriter::PngWriter(const std::string &filename, uint32_t width, uint32_t height, const Color &background) :
 	filename(filename), width(width), height(height)
 {
-	auto blackIdx = getOrAddPaletteIndex(Color{ 0, 0, 0 });
+	auto backgroundIdx = getOrAddPaletteIndex(background);
 
-	pixels = std::vector<uint8_t>(width * height, blackIdx);
+	pixels = std::vector<uint8_t>(width * height, backgroundIdx);
 }
 
 void PngWriter::setPixel(uint32_t x, uint32_t y, const Color &color)

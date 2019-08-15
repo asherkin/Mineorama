@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Helpers.h"
+
 struct SuperchunkKey {
 	int32_t dimension;
 	int32_t x;
@@ -16,7 +18,10 @@ namespace std {
 	{
 		size_t operator()(const SuperchunkKey &x) const
 		{
-			return std::hash<int32_t>{}(x.dimension) ^ std::hash<int32_t>{}(x.x) ^ std::hash<int32_t>{}(x.z);
+			auto h = hash<int32_t>{}(x.dimension);
+			hash_combine(h, x.x);
+			hash_combine(h, x.z);
+			return h;
 		}
 	};
 }

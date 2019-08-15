@@ -11,7 +11,7 @@ struct ChunkDbKey {
 	int32_t z;
 	int32_t dimension;
 	Tag tag;
-	int8_t subchunk;
+	uint8_t subchunk;
 
 	operator leveldb::Slice();
 
