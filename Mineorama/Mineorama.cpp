@@ -164,8 +164,9 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 								images.push_back(std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, airColor));
 							}
 
-							auto blockName = block.at("name").as<nbt::tag_string>().get();
-							auto blockVal = block.at("val").as<nbt::tag_short>().get();
+							// The dynamic_cast .as<>() uses is very, very slow, so be unsafe instead.
+							const auto &blockName = reinterpret_cast<const nbt::tag_string *>(block.at("name").get_ptr().get())->get();
+							auto blockVal = reinterpret_cast<const nbt::tag_short *>(block.at("val").get_ptr().get())->get();
 							auto blockColor = get_color_for_block(blockName, blockVal);
 							images[iy]->setPixel(ix, iz, blockColor);
 						}
@@ -366,7 +367,7 @@ int main()
 
 		auto idx = (xc * CHUNKS_PER_SUPERCHUNK) + zc;
 
-		// This gets us round-to-negative-infinty behaviour
+		// This gets us round-to-negative-infinity behaviour
 		if (chunkKey.x < 0) chunkKey.x -= CHUNKS_PER_SUPERCHUNK - 1;
 		chunkKey.x = chunkKey.x / CHUNKS_PER_SUPERCHUNK;
 
@@ -393,7 +394,11 @@ int main()
 		throw std::runtime_error("sanity check failed, chunk count != bitcount");
 	}
 
-	unsigned int thread_count = (THREAD_COUNT != 0) ? THREAD_COUNT : std::thread::hardware_concurrency();
+	unsigned int thread_count = THREAD_COUNT;
+	if (thread_count == 0) {
+		thread_count = std::thread::hardware_concurrency();
+	}
+
 	std::cout << "Starting " << thread_count << " worker threads..." << std::endl;
 
 	size_t done = 0;
@@ -402,29 +407,34 @@ int main()
 	std::mutex chunk_mutex;
 	auto chunk = g_Superchunks.cbegin();
 	auto end = g_Superchunks.cend();
-	for (unsigned int i = 0; i < thread_count; ++i) {
-		workers.emplace_back([i, total, &done, &chunk_mutex, &chunk, &end, db, &readOptions]() {
-			while (true) {
-				std::pair<SuperchunkKey, ChunkBitset> it;
-				{
-					std::lock_guard<std::mutex> lock(chunk_mutex);
-					if (chunk == end) {
-						break;
-					}
-					it = *chunk++;
 
-					std::cout << "Processing superchunk " << done++ << " / " << total << std::endl;
+	auto worker = [total, &done, &chunk_mutex, &chunk, &end, db, &readOptions](bool shouldPrint) {
+		while (true) {
+			std::pair<SuperchunkKey, ChunkBitset> it;
+			{
+				std::lock_guard<std::mutex> lock(chunk_mutex);
+				done++;
+				if (chunk == end) {
+					break;
 				}
-
-				process_superchunk(db, readOptions, it.first, it.second);
+				it = *chunk++;
 			}
-		});
+
+			if (shouldPrint) {
+				std::cout << "Progress: " << ((done * 100) / total) << std::endl;
+			}
+
+			process_superchunk(db, readOptions, it.first, it.second);
+		}
+	};
+
+	for (unsigned int i = 0; i < (thread_count - 1); ++i) {
+		workers.emplace_back(worker, false);
 	}
+
+	worker(true);
 
 	for (auto &it : workers) {
 		it.join();
 	}
-	workers.clear();
-
-    std::cout << "Hello World!" << std::endl;
 }
