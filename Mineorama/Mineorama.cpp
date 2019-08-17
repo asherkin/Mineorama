@@ -60,17 +60,23 @@ std::unordered_map<std::pair<std::string, int16_t>, PngWriter::Color> g_BlockCol
 thread_local std::unordered_map<std::string, std::map<int16_t, size_t>> g_LoggedMissing;
 
 PngWriter::Color get_color_for_block(const std::string &name, int16_t val) {
+	auto it = g_BlockColors.find({ name, -1 });
+	if (it != g_BlockColors.end()) {
+		return it->second;
+	}
+
 	auto key = std::make_pair(name, val);
 	
-	auto it = g_BlockColors.find(key);
+	it = g_BlockColors.find(key);
 	if (it != g_BlockColors.end()) {
 		return it->second;
 	}
 
 	g_LoggedMissing[name][val]++;
 
-	auto hash = std::hash<decltype(key)>{}(key);
-	return PngWriter::Color(hash & 0xFF, (hash >> 8) & 0xFF, (hash >> 16) & 0xFF);
+	// auto hash = std::hash<decltype(key)>{}(key);
+	// return PngWriter::Color(hash & 0xFF, (hash >> 8) & 0xFF, (hash >> 16) & 0xFF);
+	return PngWriter::Color(255, 255, 255);
 }
 
 std::vector<std::unique_ptr<BlockStorage>> parse_subchunk(const std::string &data)
@@ -232,7 +238,7 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 
 int main()
 {
-	g_BlockColors[{ "minecraft:air", 0 }] = PngWriter::Color(0, 0, 0);
+	g_BlockColors[{ "minecraft:air", -1 }] = PngWriter::Color(0, 0, 0);
 
 	std::ifstream configFile("blocks.json");
 	if (configFile) {
@@ -247,7 +253,13 @@ int main()
 				name = "minecraft:" + name;
 			}
 
-			auto colors = blockIt.value()["colors"];
+			auto colors = blockIt.value()["color"];
+
+			if (colors.type() == nlohmann::json::value_t::string) {
+				g_BlockColors[{ name, -1 }] = PngWriter::Color(colors);
+				continue;
+			}
+
 			for (int16_t i = 0; i < colors.size(); ++i) {
 				g_BlockColors[{ name, i }] = PngWriter::Color(colors[i]);
 			}

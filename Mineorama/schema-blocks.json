@@ -5,17 +5,21 @@
   "patternProperties": {
     "^.+$": {
       "properties": {
-        "colors": {
+        "color": {
           "items": {
             "pattern": "^[0-9a-f]{6}$",
             "type": "string"
           },
           "minItems": 1,
-          "type": "array"
+          "pattern": "^[0-9a-f]{6}$",
+          "type": [
+            "array",
+            "string"
+          ]
         }
       },
       "required": [
-        "colors"
+        "color"
       ],
       "type": "object"
     }
