@@ -1,0 +1,24 @@
+{
+  "$id": "schema-blocks.json",
+  "$schema": "http://json-schema.org/draft-04/schema",
+  "additionalProperties": false,
+  "patternProperties": {
+    "^.+$": {
+      "properties": {
+        "colors": {
+          "items": {
+            "pattern": "^[0-9a-f]{6}$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "colors"
+      ],
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

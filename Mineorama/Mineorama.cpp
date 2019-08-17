@@ -18,7 +18,10 @@
 #include <tag_string.h>
 #include <tag_compound.h>
 
+#include <nlohmann/json.hpp>
+
 #include <bitset>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <thread>
@@ -54,6 +57,7 @@ namespace std {
 }
 
 std::unordered_map<std::pair<std::string, int16_t>, PngWriter::Color> g_BlockColors;
+thread_local std::unordered_map<std::string, std::map<int16_t, size_t>> g_LoggedMissing;
 
 PngWriter::Color get_color_for_block(const std::string &name, int16_t val) {
 	auto key = std::make_pair(name, val);
@@ -62,6 +66,8 @@ PngWriter::Color get_color_for_block(const std::string &name, int16_t val) {
 	if (it != g_BlockColors.end()) {
 		return it->second;
 	}
+
+	g_LoggedMissing[name][val]++;
 
 	auto hash = std::hash<decltype(key)>{}(key);
 	return PngWriter::Color(hash & 0xFF, (hash >> 8) & 0xFF, (hash >> 16) & 0xFF);
@@ -227,6 +233,28 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 int main()
 {
 	g_BlockColors[{ "minecraft:air", 0 }] = PngWriter::Color(0, 0, 0);
+
+	std::ifstream configFile("blocks.json");
+	if (configFile) {
+		std::cout << "Parsing blocks config ..." << std::endl;
+
+		nlohmann::json config;
+		configFile >> config;
+
+		for (const auto &blockIt : config.items()) {
+			auto name = blockIt.key();
+			if (name.find(':') == name.npos) {
+				name = "minecraft:" + name;
+			}
+
+			auto colors = blockIt.value()["colors"];
+			for (int16_t i = 0; i < colors.size(); ++i) {
+				g_BlockColors[{ name, i }] = PngWriter::Color(colors[i]);
+			}
+		}
+	} else {
+		std::cout << "Warning: did not find blocks.json, colors will be random" << std::endl;
+	}
 
 	leveldb::Options options;
 
@@ -408,7 +436,10 @@ int main()
 	auto chunk = g_Superchunks.cbegin();
 	auto end = g_Superchunks.cend();
 
-	auto worker = [total, &done, &chunk_mutex, &chunk, &end, db, &readOptions](bool shouldPrint) {
+	std::mutex loggedMissingSummaryMutex;
+	decltype(g_LoggedMissing) loggedMissingSummary;
+
+	auto worker = [total, &done, &chunk_mutex, &chunk, &end, db, &readOptions, &loggedMissingSummaryMutex, &loggedMissingSummary](bool shouldPrint) {
 		while (true) {
 			std::pair<SuperchunkKey, ChunkBitset> it;
 			{
@@ -426,6 +457,16 @@ int main()
 
 			process_superchunk(db, readOptions, it.first, it.second);
 		}
+
+		// Copy from per-thread store to shared store.
+		{
+			std::lock_guard<std::mutex> lock(loggedMissingSummaryMutex);
+			for (const auto &it : g_LoggedMissing) {
+				for (const auto &iit : it.second) {
+					loggedMissingSummary[it.first][iit.first] += iit.second;
+				}
+			}
+		}
 	};
 
 	for (unsigned int i = 0; i < (thread_count - 1); ++i) {
@@ -436,5 +477,26 @@ int main()
 
 	for (auto &it : workers) {
 		it.join();
+	}
+
+	std::multimap<size_t, std::string> loggedMissingDisplay;
+
+	for (const auto &it : loggedMissingSummary) {
+		std::string name = it.first + "[";
+		size_t total = 0;
+
+		for (const auto &iit : it.second) {
+			if (name.back() != '[') {
+				name.push_back(',');
+			}
+			name += std::to_string(iit.first);
+			total += iit.second;
+		}
+
+		loggedMissingDisplay.emplace(total, name + "]");
+	}
+
+	for (const auto &it : loggedMissingDisplay) {
+		std::cout << it.first << " " << it.second << std::endl;
 	}
 }

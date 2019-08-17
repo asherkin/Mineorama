@@ -19,6 +19,14 @@ PngWriterColor::PngWriterColor() :
 PngWriterColor::PngWriterColor(uint8_t r, uint8_t g, uint8_t b) :
 	red(r), green(g), blue(b) {}
 
+PngWriterColor::PngWriterColor(const std::string &hex)
+{
+	auto c = std::stoi(hex, nullptr, 16);
+	red = (c >> 16) & 0xFF;
+	green = (c >> 8) & 0xFF;
+	blue = c & 0xFF;
+}
+
 #ifdef PNGWRITER_ENABLE_STATS
 PngWriter::PngWriterStats PngWriter::stats;
 #endif

@@ -10,3 +10,6 @@
 [submodule "png/src"]
 	path = png/src
 	url = https://github.com/glennrp/libpng
+[submodule ".\\json\\src"]
+	path = .\\json\\src
+	url = https://github.com/nlohmann/json

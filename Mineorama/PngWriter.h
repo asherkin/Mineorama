@@ -14,6 +14,7 @@ struct PngWriterColor
 
 	PngWriterColor();
 	PngWriterColor(uint8_t r, uint8_t g, uint8_t b);
+	PngWriterColor(const std::string &hex);
 
 	inline bool operator==(const PngWriterColor &other) const
 	{

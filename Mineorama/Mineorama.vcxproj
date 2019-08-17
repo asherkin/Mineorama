@@ -72,19 +72,19 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(SolutionDir)json\src\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(SolutionDir)json\src\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(SolutionDir)json\src\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
-    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(IncludePath)</IncludePath>
+    <IncludePath>$(SolutionDir)LevelDB\src\include;$(SolutionDir)nbt\src\include;$(SolutionDir)nbt;$(SolutionDir)png\src;$(SolutionDir)png;$(SolutionDir)json\src\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -162,6 +162,9 @@
     <ClCompile Include="PngWriter.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\json\json.vcxproj">
+      <Project>{c0c89693-b9f5-438b-9db7-20a8a1cd803b}</Project>
+    </ProjectReference>
     <ProjectReference Include="..\LevelDB\LevelDB.vcxproj">
       <Project>{c34f88e0-bc0b-47d7-8620-e77e0591745c}</Project>
     </ProjectReference>
@@ -180,7 +183,16 @@
     <ClInclude Include="PngWriter.h" />
     <ClInclude Include="SuperchunkKey.h" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="blocks.json" />
+    <None Include="schema-blocks.json" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
+  <ProjectExtensions>
+    <VisualStudio>
+      <UserProperties blocks_1json__JSONSchema="schema-blocks.json" />
+    </VisualStudio>
+  </ProjectExtensions>
 </Project>
