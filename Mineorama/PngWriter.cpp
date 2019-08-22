@@ -3,6 +3,8 @@
 #include <png.h>
 
 #include <fstream>
+#include <sstream>
+#include <iomanip>
 #include <iostream>
 #include <type_traits>
 
@@ -25,6 +27,16 @@ PngWriterColor::PngWriterColor(const std::string &hex)
 	red = (c >> 16) & 0xFF;
 	green = (c >> 8) & 0xFF;
 	blue = c & 0xFF;
+}
+
+std::string PngWriterColor::toHex() const
+{
+	std::ostringstream hex;
+	hex << std::hex << std::setfill('0') << std::setw(2) << (int)red;
+	hex << std::hex << std::setfill('0') << std::setw(2) << (int)green;
+	hex << std::hex << std::setfill('0') << std::setw(2) << (int)blue;
+
+	return hex.str();
 }
 
 #ifdef PNGWRITER_ENABLE_STATS

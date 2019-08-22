@@ -44,6 +44,8 @@ using ChunkBitset = std::bitset<CHUNKS_PER_SUPERCHUNK * CHUNKS_PER_SUPERCHUNK>;
 using SuperchunkMap = std::unordered_map<SuperchunkKey, ChunkBitset>;
 SuperchunkMap g_Superchunks;
 
+std::unordered_map<SuperchunkKey, size_t> g_OverviewTiles;
+
 namespace std {
 	template<> struct hash<pair<string, int16_t>>
 	{
@@ -188,6 +190,8 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 		}
 	}
 
+	g_OverviewTiles[key] = images.size();
+
 #if 1
 	// Loop again to fill blocks up to the top, has to be after all layer images are generated
 	// TODO: I think this needs to be two different things:
@@ -228,8 +232,6 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 		}
 	}
 #endif
-
-	// TODO: Store the highest image layer index somewhere for the web viewer to use
 
 	for (const auto &it : images) {
 		it->write();
@@ -489,6 +491,27 @@ int main()
 
 	for (auto &it : workers) {
 		it.join();
+	}
+
+	{
+		nlohmann::json superchunkIndex = {};
+		for (auto &it : g_OverviewTiles) {
+			const auto &key = it.first;
+			superchunkIndex[std::to_string(key.dimension)][std::to_string(key.x)][std::to_string(key.z)] = it.second - 1;
+		}
+	
+		std::ofstream superchunkIndexFile(OUTPUT_PATH + std::string("/index.json"));
+		superchunkIndexFile << superchunkIndex << std::endl;
+	}
+
+	{
+		nlohmann::json blockColorIndex = {};
+		for (auto &it : g_BlockColors) {
+			blockColorIndex[it.second.toHex()].push_back({ it.first.first, it.first.second });
+		}
+
+		std::ofstream blockColorIndexFile(OUTPUT_PATH + std::string("/colors.json"));
+		blockColorIndexFile << blockColorIndex << std::endl;
 	}
 
 	std::multimap<size_t, std::string> loggedMissingDisplay;
