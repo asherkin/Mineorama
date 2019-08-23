@@ -6,10 +6,11 @@
     import L from "leaflet";
 
     L.TileLayer.Mineorama = L.TileLayer.extend({
-        _tileIndex: null,
         options: {
             dimension: 0,
             layer: 255,
+            minZoom: -5,
+            maxZoom: 7,
             minNativeZoom: 0,
             maxNativeZoom: 0,
         },
@@ -33,21 +34,62 @@
 
             const limit = this._tileIndex[this.options.dimension][coords.x][coords.y];
 
-            // Re-purpose z as the layer index.
-            let displayLayer = this.options.layer;
-            if (displayLayer > limit) {
-                displayLayer = limit;
-            }
+            this.options._displayLayer = Math.min(this.options.layer, limit);
 
-            this.options._displayLayer = displayLayer;
             return L.TileLayer.prototype.getTileUrl.call(this, coords);
         },
+        _tileIndex: null,
     });
     
-    L.tileLayer.mineorama = function (options) {
-        return fetch('/tiles/index.json')
-            .then(response => response.json())
-            .then(tileIndex => new L.TileLayer.Mineorama(tileIndex, options));
+    L.tileLayer.mineorama = function (tileIndex, options) {
+        return new L.TileLayer.Mineorama(tileIndex, options);
+    };
+
+    L.Control.LayerSlider = L.Control.extend({
+        options: {
+            tileIndex: null,
+            displayLayer: null,
+        },
+        onAdd() {
+            /** @type{HTMLDivElement} */
+            const container = L.DomUtil.create("div");
+            L.DomEvent.disableScrollPropagation(container);
+            L.DomEvent.disableClickPropagation(container);
+
+            /** @type{HTMLInputElement} */
+            this._rangeElement = L.DomUtil.create("input");
+            this._rangeElement.type = "range";
+            this._rangeElement.min = "0";
+            this._rangeElement.max = "255";
+            this._rangeElement.step = "1";
+            this._rangeElement.value = "255";
+            this._rangeElement.style.width = "calc(100vw - 25px)";
+            container.appendChild(this._rangeElement);
+            L.DomEvent.on(this._rangeElement, "input", this._onSliderChange.bind(this));
+
+            this._onSliderChange();
+
+            return container;
+        },
+        _rangeElement: null,
+        _onSliderChange() {
+            const layer = +this._rangeElement.value;
+            let oldLayer = this.options.displayLayer;
+            this.options.displayLayer = L.tileLayer.mineorama(this.options.tileIndex, {
+                layer: layer,
+            }).on('load', () => {
+                setTimeout(() => {
+                    if (oldLayer) {
+                        oldLayer.remove();
+                        oldLayer = null;
+                    }
+                }, 250);
+            }).addTo(this._map);
+        },
+    });
+
+    L.control.layerSlider = function (options) {
+        return new L.Control.LayerSlider(options);
     };
 
     export default {
@@ -60,14 +102,15 @@
                 crs: L.CRS.Simple,
                 center: [-234, -137],
                 zoom: 2,
+                fadeAnimation: false,
             });
 
-            L.tileLayer.mineorama({
-                minZoom: -5,
-                maxZoom: 7,
-            }).then((layer) => {
-                this.$options.layer = layer.addTo(this.$options.map);
-            });
+            fetch('/tiles/index.json')
+                .then(response => response.json())
+                .then(tileIndex => L.control.layerSlider({
+                    position: 'bottomright',
+                    tileIndex: tileIndex,
+                }).addTo(this.$options.map));
         },
         map: null,
     };
