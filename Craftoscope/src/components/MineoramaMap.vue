@@ -10,7 +10,8 @@
             dimension: 0,
             layer: 255,
             minZoom: -5,
-            maxZoom: 7,
+            maxZoom: 6,
+            tileSize: 512,
             minNativeZoom: 0,
             maxNativeZoom: 0,
         },
@@ -20,23 +21,30 @@
             L.setOptions(this, options);
         },
         getTileUrl(coords) {
-            if (this._tileIndex[this.options.dimension] === undefined) {
-                return '';
-            }
-
-            if (this._tileIndex[this.options.dimension][coords.x] === undefined) {
-                return '';
-            }
-
-            if (this._tileIndex[this.options.dimension][coords.x][coords.y] === undefined) {
-                return '';
-            }
-
             const limit = this._tileIndex[this.options.dimension][coords.x][coords.y];
 
             this.options._displayLayer = Math.min(this.options.layer, limit);
 
             return L.TileLayer.prototype.getTileUrl.call(this, coords);
+        },
+        _isValidTile(coords) {
+            if (!L.TileLayer.prototype._isValidTile.call(this, coords)) {
+                return false;
+            }
+
+            if (this._tileIndex[this.options.dimension] === undefined) {
+                return false;
+            }
+
+            if (this._tileIndex[this.options.dimension][coords.x] === undefined) {
+                return false;
+            }
+
+            if (this._tileIndex[this.options.dimension][coords.x][coords.y] === undefined) {
+                return false;
+            }
+
+            return true;
         },
         _tileIndex: null,
     });
@@ -50,7 +58,7 @@
             tileIndex: null,
             displayLayer: null,
         },
-        onAdd() {
+        onAdd(map) {
             /** @type{HTMLDivElement} */
             const container = L.DomUtil.create("div");
             L.DomEvent.disableScrollPropagation(container);
@@ -65,14 +73,14 @@
             this._rangeElement.value = "255";
             this._rangeElement.style.width = "calc(100vw - 25px)";
             container.appendChild(this._rangeElement);
-            L.DomEvent.on(this._rangeElement, "input", this._onSliderChange.bind(this));
+            L.DomEvent.on(this._rangeElement, "input", this._onSliderChange.bind(this, map));
 
-            this._onSliderChange();
+            this._onSliderChange(map);
 
             return container;
         },
         _rangeElement: null,
-        _onSliderChange() {
+        _onSliderChange(map) {
             const layer = +this._rangeElement.value;
             let oldLayer = this.options.displayLayer;
             this.options.displayLayer = L.tileLayer.mineorama(this.options.tileIndex, {
@@ -84,12 +92,34 @@
                         oldLayer = null;
                     }
                 }, 250);
-            }).addTo(this._map);
+            }).addTo(map);
         },
     });
 
     L.control.layerSlider = function (options) {
         return new L.Control.LayerSlider(options);
+    };
+
+    L.Control.LayerInspector = L.Control.extend({
+        options: {
+            colorMap: null,
+        },
+        onAdd(map) {
+            /** @type{HTMLDivElement} */
+            const container = L.DomUtil.create("div");
+
+            /*
+            map.on("mousemove", (e) => {
+                console.log(e);
+            });
+            */
+
+            return container;
+        },
+    });
+
+    L.control.layerInspector = function (options) {
+        return new L.Control.LayerInspector(options);
     };
 
     export default {
@@ -100,8 +130,8 @@
                 zoomSnap: 0.5,
                 zoomDelta: 1,
                 crs: L.CRS.Simple,
-                center: [-234, -137],
-                zoom: 2,
+                center: [-450, -250],
+                zoom: 1,
                 fadeAnimation: false,
             });
 
@@ -110,6 +140,13 @@
                 .then(tileIndex => L.control.layerSlider({
                     position: 'bottomright',
                     tileIndex: tileIndex,
+                }).addTo(this.$options.map));
+
+            fetch('/tiles/colors.json')
+                .then(response => response.json())
+                .then(colorMap => L.control.layerInspector({
+                    position: 'topright',
+                    colorMap: colorMap,
                 }).addTo(this.$options.map));
         },
         map: null,
