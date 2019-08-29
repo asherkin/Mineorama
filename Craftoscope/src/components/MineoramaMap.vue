@@ -17,7 +17,7 @@
         },
         initialize: function (tileIndex, options) {
             this._tileIndex = tileIndex;
-            L.TileLayer.prototype.initialize.call(this, '/tiles/tile_{dimension}_{_displayLayer}_{x}_{y}.png', options)
+            L.TileLayer.prototype.initialize.call(this, '/tiles/tile_{dimension}_{_displayLayer}_{x}_{y}.png', options);
             L.setOptions(this, options);
         },
         getTileUrl(coords) {
@@ -55,6 +55,7 @@
 
     L.Control.LayerSlider = L.Control.extend({
         options: {
+            dimension: 1,
             tileIndex: null,
             displayLayer: null,
         },
@@ -64,26 +65,95 @@
             L.DomEvent.disableScrollPropagation(container);
             L.DomEvent.disableClickPropagation(container);
 
+            /** @type{HTMLButtonElement} */
+            const overworldButton = L.DomUtil.create("button");
+            overworldButton.type = "button";
+            overworldButton.textContent = "Overworld";
+            container.appendChild(overworldButton);
+            L.DomEvent.on(overworldButton, "click", (function() {
+                this.options.dimension = 0;
+                this._resetMap(map);
+            }).bind(this));
+
+            /** @type{HTMLButtonElement} */
+            const netherButton = L.DomUtil.create("button");
+            netherButton.type = "button";
+            netherButton.textContent = "Nether";
+            container.appendChild(netherButton);
+            L.DomEvent.on(netherButton, "click", (function() {
+                this.options.dimension = 1;
+                this._resetMap(map);
+            }).bind(this));
+
             /** @type{HTMLInputElement} */
             this._rangeElement = L.DomUtil.create("input");
             this._rangeElement.type = "range";
-            this._rangeElement.min = "0";
-            this._rangeElement.max = "255";
-            this._rangeElement.step = "1";
-            this._rangeElement.value = "255";
+            this._rangeElement.min = 0;
+            this._rangeElement.max = 255;
+            this._rangeElement.step = 1;
+            this._rangeElement.value = 255;
             this._rangeElement.style.width = "calc(100vw - 25px)";
             container.appendChild(this._rangeElement);
             L.DomEvent.on(this._rangeElement, "input", this._onSliderChange.bind(this, map));
 
-            this._onSliderChange(map);
+            this._resetMap(map);
 
             return container;
         },
         _rangeElement: null,
+        _resetMap(map) {
+            let xBounds = [+Infinity, -Infinity];
+            let yBounds = [+Infinity, -Infinity];
+            let zBounds = [+Infinity, -Infinity];
+
+            for (const x in this.options.tileIndex[this.options.dimension]) {
+                if (!this.options.tileIndex[this.options.dimension].hasOwnProperty(x)) {
+                    continue;
+                }
+
+                xBounds[0] = Math.min(xBounds[0], x);
+                xBounds[1] = Math.max(xBounds[1], x);
+
+                for (const z in this.options.tileIndex[this.options.dimension][x]) {
+                    if (!this.options.tileIndex[this.options.dimension][x].hasOwnProperty(z)) {
+                        continue;
+                    }
+
+                    zBounds[0] = Math.min(zBounds[0], z);
+                    zBounds[1] = Math.max(zBounds[1], z);
+
+                    const y = this.options.tileIndex[this.options.dimension][x][z];
+                    yBounds[0] = Math.min(yBounds[0], y);
+                    yBounds[1] = Math.max(yBounds[1], y);
+                }
+            }
+
+            this._rangeElement.max = yBounds[1];
+            this._rangeElement.value = yBounds[1];
+
+            this._onSliderChange(map);
+
+            const multiplier = 512;
+            const bounds = [
+                [(zBounds[1] + 1) * -multiplier, xBounds[0] * multiplier],
+                [zBounds[0] * -multiplier, (xBounds[1] + 1) * multiplier],
+            ];
+
+            /*L.rectangle(bounds, {
+                color: "#ff7800",
+                weight: 1,
+            }).addTo(map);*/
+
+            map.fitBounds(bounds, {
+                animate: false,
+            });
+            // map.setMaxBounds(bounds);
+        },
         _onSliderChange(map) {
             const layer = +this._rangeElement.value;
             let oldLayer = this.options.displayLayer;
             this.options.displayLayer = L.tileLayer.mineorama(this.options.tileIndex, {
+                dimension: this.options.dimension,
                 layer: layer,
             }).on('load', () => {
                 setTimeout(() => {
