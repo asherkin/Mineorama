@@ -15,23 +15,6 @@ constexpr auto RESOURCE_PACK_PATH = R"(C:\Users\asherkin\Downloads\Vanilla_Resou
 
 std::unordered_map<std::string, std::string> g_ColorCache;
 
-void adjust_grass_color(const std::string &path, double &r, double &g, double &b)
-{
-	// TODO: Proper leaf color handling.
-	if (path.find("leaves") != path.npos ||
-		path.find("grass") != path.npos ||
-		path.find("fern") != path.npos ||
-		path.find("melon_stem") != path.npos ||
-		path.find("pumpkin_stem") != path.npos ||
-		path.find("vine") != path.npos ||
-		path.find("waterlily") != path.npos)
-	{
-		r = (r + 78) / 2;
-		g = (g + 118) / 2;
-		b = (b + 42) / 2;
-	}
-}
-
 #pragma optimize("", off)
 // [00:57:14] <asherkin> https://gist.github.com/asherkin/3fd74dfe83dc76d48360bbecaefa68a8 loop unroller bug or have I done something stupid (any one of those 3 changes "fixes" it)
 // [00:57:57] <asherkin> context: [00:28] asherkin : oh dear, I've ended up with a program that works correctly in a debug build but outputs the wrong values in a release build
@@ -101,8 +84,6 @@ std::string color_from_png(const std::string &path, std::ifstream &stream)
 			count++;
 		}
 	}
-
-	adjust_grass_color(path, r, g, b);
 
 	png_destroy_read_struct(&context, &info, nullptr);
 
@@ -243,8 +224,6 @@ std::string color_from_tga(const std::string &path, std::ifstream &stream)
 		throw new std::runtime_error("error unpacking RLE data");
 	}
 
-	adjust_grass_color(path, r, g, b);
-
 	std::ostringstream hex;
 	hex << std::hex << std::setfill('0') << std::setw(2) << (int)r;
 	hex << std::hex << std::setfill('0') << std::setw(2) << (int)g;
@@ -306,9 +285,12 @@ int main()
 		const auto &name = bit.key();
 		const auto &block = bit.value();
 
-		const auto &textureSet = block.find("textures");
+		auto textureSet = block.find("carried_textures");
 		if (textureSet == block.end()) {
-			continue;
+			textureSet = block.find("textures");
+			if (textureSet == block.end()) {
+				continue;
+			}
 		}
 
 		std::string textureName;

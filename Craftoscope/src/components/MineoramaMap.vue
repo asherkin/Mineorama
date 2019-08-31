@@ -55,7 +55,7 @@
 
     L.Control.LayerSlider = L.Control.extend({
         options: {
-            dimension: 1,
+            dimension: 0,
             tileIndex: null,
             displayLayer: null,
         },
