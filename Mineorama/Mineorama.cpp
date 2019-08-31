@@ -174,7 +174,7 @@ void process_superchunk(leveldb::DB *db, const leveldb::ReadOptions &options, co
 
 							while (iy >= images.size()) {
 								std::ostringstream filename;
-								filename << OUTPUT_PATH << "/tile_" << key.dimension << "_" << iy << "_" << key.x << "_" << key.z << ".png";
+								filename << OUTPUT_PATH << "/tile_" << key.dimension << "_" << images.size() << "_" << key.x << "_" << key.z << ".png";
 								images.push_back(std::make_unique<PngWriter>(filename.str(), BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, BLOCKS_PER_CHUNK * CHUNKS_PER_SUPERCHUNK, airColor));
 							}
 
@@ -294,7 +294,7 @@ int main()
 	leveldb::DB *db;
 	leveldb::Status status = leveldb::DB::Open(options, WORLD_PATH, &db);
 
-	std::cout << "Iterating all keys to build superchunks ";
+	std::cout << "Iterating all keys to build superchunks " << std::flush;
 
 	int count = 0;
 	leveldb::Iterator *iter = db->NewIterator(readOptions);
@@ -398,7 +398,7 @@ int main()
 
 		count++;
 		if ((count % 1000) == 0) {
-			std::cout << ".";
+			std::cout << "." << std::flush;
 		}
 
 		auto xc = chunkKey.x % CHUNKS_PER_SUPERCHUNK;
