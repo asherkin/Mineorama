@@ -62,6 +62,62 @@ std::unordered_map<std::pair<std::string, int16_t>, PngWriter::Color> g_BlockCol
 thread_local std::unordered_map<std::string, std::map<int16_t, size_t>> g_LoggedMissing;
 
 PngWriter::Color get_color_for_block(const std::string &name, int16_t val) {
+	if (name == "minecraft:wood") {
+		bool isStripped = (val & 0x8) != 0;
+		val = (val & 0x7) * 2;
+		if (isStripped) val += 1;
+	} else if (name == "minecraft:double_plant" || name == "minecraft:wooden_slab" || name == "minecraft:stone_slab" || name == "minecraft:stone_slab2" || name == "minecraft:stone_slab3" || name == "minecraft:stone_slab4" || name == "minecraft:coral_fan" || name == "minecraft:sapling") {
+		val &= 0x7;
+	} else if (name == "minecraft:leaves" || name == "minecraft:leaves2" || name == "minecraft:log" || name == "minecraft:log2" || name == "minecraft:coral_fan_hang" || name == "minecraft:coral_fan_hang2" || name == "minecraft:coral_fan_hang3") {
+		val &= 0x3;
+	} else if (name == "minecraft:coral_block") {
+		bool isDead = (val & 0x8) != 0;
+		val &= 0x7;
+		if (isDead) val += 5;
+	} else if (name == "minecraft:chest" || name == "minecraft:trapped_chest") {
+		val = 0;
+	} else if (name == "minecraft:farmland") {
+		val = (val != 7);
+	} else if (name == "minecraft:potatoes" || name == "minecraft:carrots" || name == "minecraft:beetroot") {
+		if (val < 2) {
+			val = 0;
+		} else if (val < 4) {
+			val = 1;
+		} else if (val < 7) {
+			val = 2;
+		} else {
+			val = 3;
+		}
+	} else if (name == "minecraft:wooden_door") {
+		val = 0;
+	} else if (name == "minecraft:spruce_door") {
+		val = 1;
+	} else if (name == "minecraft:birch_door") {
+		val = 2;
+	} else if (name == "minecraft:jungle_door") {
+		val = 3;
+	} else if (name == "minecraft:acacia_door") {
+		val = 4;
+	} else if (name == "minecraft:dark_oak_door") {
+		val = 5;
+	} else if (name == "minecraft:iron_door") {
+		val = 6;
+	} else if (name == "minecraft:melon_stem" || name == "minecraft:pumpkin_stem") {
+		val = (val == 7);
+	} else if (name == "minecraft:cocoa") {
+		val = (val & 0xC) >> 2;
+	} else if (name == "minecraft:stone_brick_stairs" || name == "minecraft:dark_prismarine_stairs") {
+		val = 0;
+	} else if (name == "minecraft:furnace" || name == "minecraft:blast_furnace" || name == "minecraft:smoker" || name == "minecraft:unpowered_comparator" || name == "minecraft:unpowered_repeater") {
+		val = 0;
+	} else if (name == "minecraft:lit_furnace" || name == "minecraft:lit_blast_furnace" || name == "minecraft:lit_smoker" || name == "minecraft:powered_comparator" || name == "minecraft:powered_repeater") {
+		val = 1;
+	} else if (name == "minecraft:pumpkin" || name == "minecraft:carved_pumpkin") {
+		val = 0;
+	} else if (name == "minecraft:piston" || name == "minecraft:sticky_piston") {
+		val = 0;
+	}
+
 	auto it = g_BlockColors.find({ name, -1 });
 	if (it != g_BlockColors.end()) {
 		return it->second;
