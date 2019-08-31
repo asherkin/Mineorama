@@ -27,6 +27,31 @@
 
             return L.TileLayer.prototype.getTileUrl.call(this, coords);
         },
+        getColor(latlng) {
+            // https://github.com/frogcat/leaflet-tilelayer-colorpicker
+
+            const size = this.getTileSize();
+            const point = this._map.project(latlng, this._tileZoom).floor();
+            const coords = point.unscaleBy(size).floor();
+            const offset = point.subtract(coords.scaleBy(size));
+            coords.z = this._tileZoom;
+            const tile = this._tiles[this._tileCoordsToKey(coords)];
+            if (!tile || !tile.loaded) {
+                return null;
+            }
+
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 1;
+                canvas.height = 1;
+                const context = canvas.getContext('2d');
+                context.drawImage(tile.el, -offset.x, -offset.y, size.x, size.y);
+                return context.getImageData(0, 0, 1, 1).data;
+            } catch(e) {
+                // eslint-disable-next-line no-console
+                console.error(e);
+            }
+        },
         _isValidTile(coords) {
             if (!L.TileLayer.prototype._isValidTile.call(this, coords)) {
                 return false;
@@ -69,6 +94,7 @@
             const overworldButton = L.DomUtil.create("button");
             overworldButton.type = "button";
             overworldButton.textContent = "Overworld";
+            overworldButton.style.padding = '5px 7px';
             container.appendChild(overworldButton);
             L.DomEvent.on(overworldButton, "click", (function() {
                 this.options.dimension = 0;
@@ -79,6 +105,7 @@
             const netherButton = L.DomUtil.create("button");
             netherButton.type = "button";
             netherButton.textContent = "Nether";
+            netherButton.style.padding = '5px 7px';
             container.appendChild(netherButton);
             L.DomEvent.on(netherButton, "click", (function() {
                 this.options.dimension = 1;
@@ -92,6 +119,7 @@
             this._rangeElement.max = 255;
             this._rangeElement.step = 1;
             this._rangeElement.value = 255;
+            this._rangeElement.style.display = "block";
             this._rangeElement.style.width = "calc(100vw - 25px)";
             container.appendChild(this._rangeElement);
             L.DomEvent.on(this._rangeElement, "input", this._onSliderChange.bind(this, map));
@@ -173,16 +201,41 @@
     L.Control.LayerInspector = L.Control.extend({
         options: {
             colorMap: null,
+            layerSliderControl: null,
         },
         onAdd(map) {
             /** @type{HTMLDivElement} */
             const container = L.DomUtil.create("div");
+            container.style.color = '#fff';
+            container.style.backgroundColor = 'rgba(0,0,0,0.8)';
+            container.style.padding = '5px 7px';
+            container.style.whiteSpace = 'pre-line';
+            container.style.textAlign = 'right';
 
-            /*
-            map.on("mousemove", (e) => {
-                console.log(e);
-            });
-            */
+            map.on("mousemove", (function(e) {
+                const layer = this.options.layerSliderControl.options.displayLayer;
+                if (!layer) {
+                    return;
+                }
+
+                const color = layer.getColor(e.latlng);
+                if (!color) {
+                    container.textContent = 'Out of Bounds';
+                    return;
+                }
+
+                const hex = (0x1000000 | (color[0] << 16) | (color[1] << 8) | color[2]).toString(16).substr(1);
+                const blocks = this.options.colorMap[hex];
+                if (!blocks) {
+                    container.textContent = 'Unknown';
+                    return;
+                }
+
+                const point = this._map.project(e.latlng, 0).floor();
+                container.textContent = blocks.reduce((r, d) => {
+                    return r + '\n' + d[0].replace(/^minecraft:/, '');
+                }, `${point.x}, ${point.y}\n`);
+            }).bind(this));
 
             return container;
         },
@@ -205,18 +258,21 @@
                 fadeAnimation: false,
             });
 
-            fetch('/tiles/index.json')
+            const layerSliderControl = fetch('/tiles/index.json')
                 .then(response => response.json())
                 .then(tileIndex => L.control.layerSlider({
                     position: 'bottomright',
                     tileIndex: tileIndex,
                 }).addTo(this.$options.map));
 
-            fetch('/tiles/colors.json')
-                .then(response => response.json())
-                .then(colorMap => L.control.layerInspector({
+            const colorMap = fetch('/tiles/colors.json')
+                .then(response => response.json());
+
+            Promise.all([ layerSliderControl, colorMap ])
+                .then(([ layerSliderControl, colorMap ]) => L.control.layerInspector({
                     position: 'topright',
                     colorMap: colorMap,
+                    layerSliderControl: layerSliderControl,
                 }).addTo(this.$options.map));
         },
         map: null,
@@ -228,6 +284,10 @@
 
     .leaflet-container {
         background: #000;
+    }
+
+    .leaflet-grab {
+        cursor: crosshair;
     }
 
     img.leaflet-tile {
