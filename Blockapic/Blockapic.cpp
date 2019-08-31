@@ -15,6 +15,23 @@ constexpr auto RESOURCE_PACK_PATH = R"(C:\Users\asherkin\Downloads\Vanilla_Resou
 
 std::unordered_map<std::string, std::string> g_ColorCache;
 
+void adjust_grass_color(const std::string &path, double &r, double &g, double &b)
+{
+	// TODO: Proper leaf color handling.
+	if (path.find("leaves") != path.npos ||
+		path.find("grass") != path.npos ||
+		path.find("fern") != path.npos ||
+		path.find("melon_stem") != path.npos ||
+		path.find("pumpkin_stem") != path.npos ||
+		path.find("vine") != path.npos ||
+		path.find("waterlily") != path.npos)
+	{
+		r = (r + 78) / 2;
+		g = (g + 118) / 2;
+		b = (b + 42) / 2;
+	}
+}
+
 #pragma optimize("", off)
 // [00:57:14] <asherkin> https://gist.github.com/asherkin/3fd74dfe83dc76d48360bbecaefa68a8 loop unroller bug or have I done something stupid (any one of those 3 changes "fixes" it)
 // [00:57:57] <asherkin> context: [00:28] asherkin : oh dear, I've ended up with a program that works correctly in a debug build but outputs the wrong values in a release build
@@ -85,12 +102,7 @@ std::string color_from_png(const std::string &path, std::ifstream &stream)
 		}
 	}
 
-	// TODO: Proper leaf color handling.
-	if (path.find("/leaves_") != path.npos || path.find("/tallgrass") != path.npos || path.find("/melon_stem") != path.npos || path.find("/pumpkin_stem") != path.npos) {
-		r = (r + 78) / 2;
-		g = (g + 118) / 2;
-		b = (b + 42) / 2;
-	}
+	adjust_grass_color(path, r, g, b);
 
 	png_destroy_read_struct(&context, &info, nullptr);
 
@@ -104,7 +116,6 @@ std::string color_from_png(const std::string &path, std::ifstream &stream)
 	g_ColorCache.emplace(path, hex.str());
 	return hex.str();
 }
-#pragma optimize("", on)
 
 std::string color_from_tga(const std::string &path, std::ifstream &stream)
 {
@@ -126,11 +137,6 @@ std::string color_from_tga(const std::string &path, std::ifstream &stream)
 		// 2 = uncompressed true-color image
 		// 10 = run-length encoded true-color image
 		throw new std::runtime_error("unknown imageType");
-	}
-
-	// We don't actually handle these yet...
-	if (imageType == 10) {
-		return "ffffff";
 	}
 
 	int16_t colorMapFirstIndexEntry;
@@ -184,13 +190,34 @@ std::string color_from_tga(const std::string &path, std::ifstream &stream)
 	size_t count = 0;
 	double r = 0, g = 0, b = 0;
 
-	for (int16_t y = 0; y < height; ++y) {
-		for (int16_t x = 0; x < width; ++x) {
-			uint8_t ir, ig, ib, ia;
-			stream.read(reinterpret_cast<char *>(&ib), sizeof(ir));
-			stream.read(reinterpret_cast<char *>(&ig), sizeof(ir));
+	int pixelsRemaining = width * height;
+	while (stream && pixelsRemaining > 0) {
+		int length = pixelsRemaining;
+		bool isRle = false;
+		if (imageType == 10) {
+			uint8_t lengthByte;
+			stream.read(reinterpret_cast<char *>(&lengthByte), sizeof(lengthByte));
+			isRle = lengthByte & 0x80;
+			length = (lengthByte & ~0x80) + 1;
+		}
+
+		uint8_t ir, ig, ib, ia;
+		if (isRle) {
+			stream.read(reinterpret_cast<char *>(&ib), sizeof(ib));
+			stream.read(reinterpret_cast<char *>(&ig), sizeof(ig));
 			stream.read(reinterpret_cast<char *>(&ir), sizeof(ir));
-			stream.read(reinterpret_cast<char *>(&ia), sizeof(ir));
+			stream.read(reinterpret_cast<char *>(&ia), sizeof(ia));
+		}
+
+		for (int i = 0; i < length; ++i) {
+			if (!isRle) {
+				stream.read(reinterpret_cast<char *>(&ib), sizeof(ib));
+				stream.read(reinterpret_cast<char *>(&ig), sizeof(ig));
+				stream.read(reinterpret_cast<char *>(&ir), sizeof(ir));
+				stream.read(reinterpret_cast<char *>(&ia), sizeof(ia));
+			}
+
+			pixelsRemaining--;
 
 			if (ia == 0) {
 				// Ignore fully transparent pixels.
@@ -212,6 +239,11 @@ std::string color_from_tga(const std::string &path, std::ifstream &stream)
 			count++;
 		}
 	}
+	if (pixelsRemaining != 0) {
+		throw new std::runtime_error("error unpacking RLE data");
+	}
+
+	adjust_grass_color(path, r, g, b);
 
 	std::ostringstream hex;
 	hex << std::hex << std::setfill('0') << std::setw(2) << (int)r;
@@ -223,6 +255,7 @@ std::string color_from_tga(const std::string &path, std::ifstream &stream)
 	g_ColorCache.emplace(path, hex.str());
 	return hex.str();
 }
+#pragma optimize("", on)
 
 std::string color_from_image(std::string path)
 {
@@ -232,13 +265,7 @@ std::string color_from_image(std::string path)
 	}
 
 	// TODO: Handle water/grass colors properly.
-	if (path == "textures/blocks/grass_top") {
-		path = "textures/blocks/grass_carried";
-	} else if (path == "textures/blocks/waterlily") {
-		path = "textures/blocks/carried_waterlily";
-	} else if (path == "textures/blocks/vine") {
-		path = "textures/blocks/vine_carried";
-	} else if (path == "textures/blocks/water_still_grey") {
+	if (path == "textures/blocks/water_still_grey") {
 		path = "textures/blocks/water_still";
 	} else if (path == "textures/blocks/water_flow_grey") {
 		path = "textures/blocks/water_flow";
@@ -256,8 +283,8 @@ std::string color_from_image(std::string path)
 		return color_from_tga(path, stream);
 	}
 
-	return "ffffff";
-	// throw std::runtime_error("Failed to open " + path + " for reading");
+	// return "ffffff";
+	throw std::runtime_error("Failed to open " + path + " for reading");
 }
 
 int main()
